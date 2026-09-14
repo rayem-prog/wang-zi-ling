@@ -33,3 +33,20 @@ def save_model(model: LGBMClassifier, path: str) -> None:
 
 def load_model(path: str) -> LGBMClassifier:
     return joblib.load(path)
+
+
+def get_feature_importances(model: LGBMClassifier, feature_names: list[str]) -> list[dict]:
+    """提取 LightGBM 模型各因子的特征重要性与贡献比例"""
+    if not hasattr(model, "feature_importances_"):
+        return []
+    importances = model.feature_importances_
+    total = sum(importances) or 1.0
+    items = []
+    for f, imp in zip(feature_names, importances):
+        items.append({
+            "feature": f,
+            "importance": int(imp),
+            "ratio": round(imp / total * 100, 2)
+        })
+    items.sort(key=lambda x: x["importance"], reverse=True)
+    return items

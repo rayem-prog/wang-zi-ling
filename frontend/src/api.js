@@ -19,6 +19,8 @@ export const api = {
   createPaperOrder: (data) => client.post('/holdings/paper', data).then(res => res.data),
   getRecapList: () => client.get('/recap/list').then(res => res.data),
   getRecapReport: (date) => client.get(`/recap/${date}`).then(res => res.data),
+  runDailyRecap: (fastMode = true) => client.post(`/recap/run?fast_mode=${fastMode}`).then(res => res.data),
+  getRecapSummary: () => client.get('/recap/status/summary').then(res => res.data),
   getDailyKline: (code) => client.get(`/kline/daily/${code}`).then(res => res.data),
   getMinuteKline: (code) => client.get(`/kline/minute/${code}`).then(res => res.data),
   getSettings: () => client.get('/settings').then(res => res.data),

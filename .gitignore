@@ -18,6 +18,7 @@ data/*.db
 artifacts/*.db
 artifacts/*.csv
 artifacts/*.json
+artifacts/*.joblib
 artifacts/recap_*.md
 !artifacts/.gitkeep
 !data/.gitkeep

@@ -135,9 +135,18 @@ def _fetch_all_signals_raw() -> list[dict[str, Any]]:
             rec = rec.sort_values("score_blend", ascending=False)
 
         for _, r in rec.iterrows():
-            code = str(r["code"])
+            code = str(r["code"]).strip()
+            if code.startswith("sh000") or code.startswith("sz399") or code == "000300":
+                continue
             name = str(r.get("name", code))
-            price = float(spot_map.get(code, r.get("price", 0.0)))
+            raw_p = spot_map.get(code, r.get("price", 0.0))
+            try:
+                price = float(raw_p)
+                if pd.isna(price) or price <= 0:
+                    continue
+            except (ValueError, TypeError):
+                continue
+
             blend = float(r.get("score_blend", 0.8))
             lgb = float(r.get("score_a", r.get("score_lgb", blend)))
             linear = float(r.get("score_b", r.get("score_linear", blend)))
@@ -228,13 +237,13 @@ def get_signals(
 
     # 3. 排序
     if sort_by == "price_asc":
-        items.sort(key=lambda x: x.get("price", 0))
+        items.sort(key=lambda x: (x.get("price") is None, x.get("price", 0.0)))
     elif sort_by == "price_desc":
-        items.sort(key=lambda x: x.get("price", 0), reverse=True)
+        items.sort(key=lambda x: (x.get("price") is None, x.get("price", 0.0)), reverse=True)
     elif sort_by == "hand_cost_asc":
-        items.sort(key=lambda x: x.get("hand_cost", 0))
+        items.sort(key=lambda x: (x.get("hand_cost") is None, x.get("hand_cost", 0.0)))
     else:  # score
-        items.sort(key=lambda x: x.get("score_blend", 0), reverse=True)
+        items.sort(key=lambda x: (x.get("score_blend") is None, x.get("score_blend", 0.0)), reverse=True)
 
     return items
 

@@ -172,10 +172,28 @@ def generate_daily_recap(
         "## 3. 昨日指令单执行回顾",
         f"{market_summary.get('order_exec_review', '- 昨日所有指令按计划限价区间挂单，无异常跳空。')}",
         "",
-        "## 4. 双引擎表现跟踪",
+        "## 4. 双引擎表现跟踪与算法权重自适应演进",
         f"- **引擎 A (LightGBM)**: {engine_perf.get('engine_a', '胜率 55%, 收益 +0.8%')}",
         f"- **引擎 B (规则引擎)**: {engine_perf.get('engine_b', '胜率 52%, 收益 +0.5%')}",
         f"- **动态加权组合**: {engine_perf.get('blend', '收益 +0.9%')}",
+    ]
+
+    if engine_perf.get("weight_audit"):
+        md_lines.extend([
+            "",
+            "### 4.1 动态权重自适应赏罚调整",
+            engine_perf["weight_audit"],
+        ])
+
+    if engine_perf.get("rule_audit") or engine_perf.get("model_audit"):
+        md_lines.extend([
+            "",
+            "### 4.2 公式与模型算法优化",
+            f"- **规则引擎 B 公式调优**: {engine_perf.get('rule_audit', '已应用宏观自适应优化配置')}",
+            f"- **LightGBM 算法调优**: {engine_perf.get('model_audit', '模型样本已更新，特征收敛正常')}",
+        ])
+
+    md_lines.extend([
         "",
         "## 5. 信号与风控复盘",
         f"{market_summary.get('signal_review', '- 今日无标的触及 -5% 止损线，整体回撤受控。')}",
@@ -184,7 +202,7 @@ def generate_daily_recap(
         f"{market_summary.get('event_reminder', '- 当前无重大紧迫事件，保持正常节奏。')}",
         "",
         "## 7. 明日操作指令单",
-    ]
+    ])
 
     if orders_df.empty:
         md_lines.append("> 今日无新增买入或调仓指令，维持现有仓位。")

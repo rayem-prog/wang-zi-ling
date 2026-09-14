@@ -105,3 +105,61 @@ def test_recap_and_summary_output(tmp_path):
     summary = recap.generate_notification_summary("2026-09-14", macro_res=macro_res, orders_df=orders)
     assert "ATTACK" in summary
     assert "000001" in summary
+
+
+def test_recap_with_weights_and_formula_optimization(tmp_path):
+    report_dir = str(tmp_path / "reports")
+    macro_res = MacroResult(
+        score=-0.2,
+        stance="defense",
+        trend_score=-0.3,
+        breadth_score=-0.1,
+        vol_score=-0.2,
+        max_total_position=0.30,
+        allow_new_buy=False,
+        event_penalty_applied=False,
+    )
+
+    engine_perf = {
+        "engine_a": "-1.0%",
+        "engine_b": "-0.2%",
+        "blend": "-0.5%",
+        "weight_audit": "- 原权重: `w_a=0.40, w_b=0.60` -> 调整后权重: `w_a=0.35, w_b=0.65`\n- 调权依据: 规则引擎B超额表现更佳，动态上调B权重",
+        "rule_audit": "防守防御策略：大幅提升超跌反弹与低波护城河因子权重 (DEFENSE)",
+        "model_audit": "LightGBM 决策树重要度已更新",
+    }
+
+    md = recap.generate_daily_recap(
+        trade_date="2026-09-14",
+        market_summary={"index_text": "沪深300 -0.8%"},
+        holdings_summary={"market_value": 30000.0, "daily_pnl": -150.0, "daily_pnl_pct": -0.5, "excess_pct": 0.3},
+        engine_perf=engine_perf,
+        orders_df=pd.DataFrame(),
+        macro_res=macro_res,
+        save_dir=report_dir,
+    )
+    assert "4.1 动态权重自适应赏罚调整" in md
+    assert "4.2 公式与模型算法优化" in md
+    assert "规则引擎B超额表现更佳" in md
+    assert "DEFENSE" in md
+
+
+def test_recap_api_endpoints():
+    from fastapi.testclient import TestClient
+    from api.main import app
+
+    client = TestClient(app)
+    # 1. 列表接口
+    list_res = client.get("/api/recap/list")
+    assert list_res.status_code == 200
+    assert isinstance(list_res.json(), list)
+
+    # 2. 状态看板统计接口
+    status_res = client.get("/api/recap/status/summary")
+    assert status_res.status_code == 200
+    data = status_res.json()
+    assert "total_reports" in data
+    assert "current_weights" in data
+    assert "weight_a" in data["current_weights"]
+    assert "weight_b" in data["current_weights"]
+
