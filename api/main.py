@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from api.routers import holdings, intraday, kline, macro, orders, paper, recap, search, settings, signals, status
+from api.routers import holdings, intraday, kline, macro, orders, paper, recap, sandbox, search, settings, signals, status
 from api.ws import get_market_trading_status, manager
 from config.settings import load_settings
 from data import db
@@ -82,6 +82,7 @@ app.include_router(settings.router)
 app.include_router(search.router)
 app.include_router(intraday.router)
 app.include_router(paper.router)
+app.include_router(sandbox.router)
 
 
 @app.websocket("/ws/stream")

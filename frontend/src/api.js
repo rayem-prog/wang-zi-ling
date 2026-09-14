@@ -34,7 +34,21 @@ export const api = {
   shockPortfolio: () => client.post('/paper/shock-test').then(res => res.data),
   resetPaperAccount: () => client.post('/paper/reset').then(res => res.data),
   getAiSimulation: (riskPref = 'balanced') => client.get(`/paper/ai-simulation?risk_pref=${riskPref}`).then(res => res.data),
-  executeAiSimulation: (data = {}) => client.post('/paper/ai-simulation/execute', data).then(res => res.data)
+  executeAiSimulation: (data = {}) => client.post('/paper/ai-simulation/execute', data).then(res => res.data),
+
+  // 自选股管理
+  getWatchlist: () => client.get('/signals/watchlist').then(res => res.data),
+  addToWatchlist: (data) => client.post('/signals/watchlist', data).then(res => res.data),
+  removeFromWatchlist: (code) => client.delete(`/signals/watchlist/${code}`).then(res => res.data),
+
+  // 历史推演沙盒与时间加速
+  getSandboxSchemes: () => client.get('/sandbox/schemes').then(res => res.data),
+  seedSandboxData: (force = false) => client.post(`/sandbox/seed?force=${force}`).then(res => res.data),
+  initSandbox: (data) => client.post('/sandbox/init', data).then(res => res.data),
+  stepSandbox: (days = 1) => client.post('/sandbox/step', { days }).then(res => res.data),
+  fastForwardSandbox: () => client.post('/sandbox/fast-forward').then(res => res.data),
+  getSandboxStatus: () => client.get('/sandbox/status').then(res => res.data),
+  compareSandboxSchemes: (data = {}) => client.post('/sandbox/compare', data).then(res => res.data)
 }
 
 export function createWebSocket(onMessage, onStatusChange) {

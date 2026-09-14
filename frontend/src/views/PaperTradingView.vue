@@ -1,334 +1,447 @@
 <template>
   <div class="view-container">
-    <!-- 顶部工具栏与场景随机发生器 -->
+    <!-- 顶部主标题与双模式切换 -->
     <div class="view-toolbar">
       <div class="toolbar-left">
-        <h2 class="view-title">🎮 模拟交易与模拟账户中心</h2>
-        <span class="view-subtitle">真实资金记账、价格档位撮合下单、AI 自主推演模拟建仓与行情压力测试</span>
+        <h2 class="view-title">⏳ AI 历史推演与时间加速沙盒</h2>
+        <span class="view-subtitle">存入往期数据 · 多方案与自定义选股 · 时间加速推演 · 探究 AI 真实盈利水平与实盘胜率</span>
       </div>
+
       <div class="toolbar-right">
-        <button class="action-btn random-btn" @click="handleRandomPortfolio" :disabled="loading" title="随机生成 3-5 只代表性真实股票持仓组合">
-          🎲 随机生成持仓
+        <!-- 往期数据存入与检查状态 -->
+        <button
+          class="action-btn seed-btn"
+          @click="handleSeedData"
+          :disabled="seeding || isPlaying"
+          title="检查并写入 2023-2024 年全量历史行情与基准日K线"
+        >
+          {{ seeding ? '正在存入往期数据...' : '📥 存入/重置往期历史数据' }}
         </button>
-        <button class="action-btn shock-btn" @click="handleShockTest" :disabled="loading" title="随机扰动当前持仓价格(-7%至+17%)，测试止损止盈预警">
-          ⚡ 随机行情震荡 (压力测试)
-        </button>
-        <button class="action-btn reset-btn" @click="handleResetAccount" :disabled="loading" title="清空持仓，重置为初始 100 万现金">
-          🔄 重置账户
+
+        <!-- 多方案同台竞技对比 -->
+        <button
+          class="action-btn compare-btn"
+          @click="openCompareModal"
+          :disabled="seeding || isPlaying"
+          title="同时推演 4 种 AI 方案，同台对比净值与超额 Alpha"
+        >
+          🏁 AI 多方案竞技对比
         </button>
       </div>
     </div>
 
-    <!-- 模拟账户资产概览 -->
-    <div class="account-summary-grid">
-      <div class="acc-card main">
-        <span class="acc-sub">模拟总资产估值</span>
-        <span class="acc-val total">¥{{ account.total_equity?.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</span>
-        <span class="acc-desc">初始资金: ¥{{ account.initial_cash?.toLocaleString() }}</span>
-      </div>
-
-      <div class="acc-card">
-        <span class="acc-sub">可用现金</span>
-        <span class="acc-val cash">¥{{ account.cash?.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</span>
-        <span class="acc-desc">随时可支配买入资金</span>
-      </div>
-
-      <div class="acc-card">
-        <span class="acc-sub">持仓总市值</span>
-        <span class="acc-val">¥{{ account.market_value?.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</span>
-        <span class="acc-desc">当前仓位占比 {{ positionRatio }}%</span>
-      </div>
-
-      <div class="acc-card">
-        <span class="acc-sub">累计实现/浮动盈亏</span>
-        <span class="acc-val" :class="account.total_pnl >= 0 ? 'text-up' : 'text-down'">
-          {{ account.total_pnl >= 0 ? '+' : '' }}¥{{ account.total_pnl?.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}
-        </span>
-        <span class="acc-desc" :class="account.return_pct >= 0 ? 'text-up' : 'text-down'">
-          总收益率: {{ account.return_pct >= 0 ? '+' : '' }}{{ (account.return_pct * 100)?.toFixed(2) }}%
-        </span>
-      </div>
+    <!-- 顶栏历史数据准备提示条 -->
+    <div class="seed-status-bar" v-if="seedInfo">
+      <span class="seed-icon">📊</span>
+      <span class="seed-text">
+        往期数据就绪：覆盖 <b>{{ seedInfo.stock_count || 20 }}</b> 只代表性标的与沪深300基准，
+        区间 <b>{{ seedInfo.min_date }}</b> 至 <b>{{ seedInfo.max_date }}</b>，
+        共 <b>{{ (seedInfo.total_bars || 10420).toLocaleString() }}</b> 根历史日 K 记录。
+      </span>
     </div>
 
-    <!-- 🤖 AI 自主模拟与智能仓位推演中心 -->
-    <div class="ai-pilot-section">
-      <div class="ai-section-header">
-        <div class="header-left">
-          <div class="ai-title-row">
-            <span class="ai-badge">AI AUTO-PILOT</span>
-            <h3 class="ai-title">🤖 AI 自主模拟推演 · 价格区间与推荐股数</h3>
+    <!-- 1. AI 选股方案配置卡片组 -->
+    <div class="scheme-section">
+      <div class="section-label-row">
+        <span class="sec-badge">AI SCHEMES</span>
+        <span class="sec-title">选择 AI 推演策略方案或自定义配置：</span>
+      </div>
+
+      <div class="schemes-grid">
+        <!-- 方案 1: 强势动量 -->
+        <div
+          class="scheme-card"
+          :class="{ active: currentScheme === 'momentum' }"
+          @click="selectScheme('momentum')"
+        >
+          <div class="sc-header">
+            <span class="sc-icon">🚀</span>
+            <span class="sc-title">AI 强势动量突破</span>
+            <span class="sc-tag momentum">高Alpha弹性</span>
           </div>
-          <span class="ai-subtitle">
-            AI 依据账户当前可用现金 <b>¥{{ account.cash?.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</b>、多因子胜率评分与风控模型，动态测算推荐标的、挂单价格区间与最优推荐股数
-          </span>
+          <p class="sc-desc">专攻高综合分、多头突破爆发标的，单票上限 25%，止损 5%，止盈 15%，5日快速轮动。</p>
+          <div class="sc-footer">
+            <span>止损: <b>-5%</b></span>
+            <span>止盈: <b>+15%</b></span>
+            <span>持仓: <b>≤4只</b></span>
+          </div>
         </div>
 
-        <div class="header-right">
-          <!-- 风险偏好切换器 -->
-          <div class="risk-pref-selector">
-            <button
-              :class="{ active: currentRiskPref === 'conservative' }"
-              @click="switchRiskPref('conservative')"
-              title="单票上限 15%，防守控制回撤"
-            >
-              🛡️ 稳健型 (15%仓)
-            </button>
-            <button
-              :class="{ active: currentRiskPref === 'balanced' }"
-              @click="switchRiskPref('balanced')"
-              title="单票上限 25%，风险收益平衡"
-            >
-              ⚖️ 平衡型 (25%仓)
-            </button>
-            <button
-              :class="{ active: currentRiskPref === 'aggressive' }"
-              @click="switchRiskPref('aggressive')"
-              title="单票上限 35%，进取弹性博弈"
-            >
-              🚀 进取型 (35%仓)
-            </button>
+        <!-- 方案 2: 稳健价值 -->
+        <div
+          class="scheme-card"
+          :class="{ active: currentScheme === 'value' }"
+          @click="selectScheme('value')"
+        >
+          <div class="sc-header">
+            <span class="sc-icon">🛡️</span>
+            <span class="sc-title">AI 稳健低估值分红</span>
+            <span class="sc-tag value">防御低回撤</span>
+          </div>
+          <p class="sc-desc">偏好黄金低价池 (≤¥20) 与低波动高股息资产，单票上限 15%，止损 7%，止盈 12%，稳健长跑。</p>
+          <div class="sc-footer">
+            <span>止损: <b>-7%</b></span>
+            <span>止盈: <b>+12%</b></span>
+            <span>持仓: <b>≤6只</b></span>
+          </div>
+        </div>
+
+        <!-- 方案 3: 双引擎均衡 -->
+        <div
+          class="scheme-card"
+          :class="{ active: currentScheme === 'balanced' }"
+          @click="selectScheme('balanced')"
+        >
+          <div class="sc-header">
+            <span class="sc-icon">⚖️</span>
+            <span class="sc-title">AI 双引擎多因子均衡</span>
+            <span class="sc-tag balanced">量化中枢</span>
+          </div>
+          <p class="sc-desc">LightGBM 机器学习与线性模型动态加权均衡配置，单票上限 20%，止损 6%，止盈 15%。</p>
+          <div class="sc-footer">
+            <span>止损: <b>-6%</b></span>
+            <span>止盈: <b>+15%</b></span>
+            <span>持仓: <b>≤5只</b></span>
+          </div>
+        </div>
+
+        <!-- 方案 4: 自定义选股推演 -->
+        <div
+          class="scheme-card custom"
+          :class="{ active: currentScheme === 'custom' }"
+          @click="selectScheme('custom')"
+        >
+          <div class="sc-header">
+            <span class="sc-icon">🛠️</span>
+            <span class="sc-title">自定义选股推演方案</span>
+            <span class="sc-tag custom">自由调参</span>
+          </div>
+          <p class="sc-desc">自由选择股票池（如仅自选股⭐）、单票仓位、止损止盈比率与调仓节奏，探究自定义收益。</p>
+          <div class="sc-footer">
+            <span>标的池: <b>{{ customForm.pool_filter === 'watchlist' ? '仅自选股⭐' : '全市场池' }}</b></span>
+            <span>参数: <b>可展开配置</b></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 自定义方案专属展开面板 -->
+      <div class="custom-config-panel" v-if="currentScheme === 'custom'">
+        <div class="config-row">
+          <div class="cfg-item">
+            <label>股票池选择：</label>
+            <select v-model="customForm.pool_filter" class="terminal-select">
+              <option value="all">全市场代表性标的池 (20+只)</option>
+              <option value="watchlist">⭐ 仅推演我的自选股 ({{ watchlistCodes.length }} 只)</option>
+              <option value="low">🟢 仅黄金低价池 (≤¥20)</option>
+            </select>
           </div>
 
-          <button class="ai-action-btn refresh" @click="fetchAiSimulation" :disabled="aiLoading">
-            {{ aiLoading ? '推演中...' : '🔄 重新生成 AI 推演' }}
+          <div class="cfg-item">
+            <label>初始本金：</label>
+            <select v-model.number="customForm.initial_cash" class="terminal-select">
+              <option :value="100000">10 万现金</option>
+              <option :value="500000">50 万现金</option>
+              <option :value="1000000">100 万现金 (标准)</option>
+              <option :value="2000000">200 万现金</option>
+            </select>
+          </div>
+
+          <div class="cfg-item">
+            <label>单票仓位上限：</label>
+            <select v-model.number="customForm.max_single_weight" class="terminal-select">
+              <option :value="0.10">10% 仓位 (分散)</option>
+              <option :value="0.20">20% 仓位 (标准)</option>
+              <option :value="0.30">30% 仓位 (进取)</option>
+              <option :value="0.40">40% 仓位 (集中)</option>
+            </select>
+          </div>
+
+          <div class="cfg-item">
+            <label>止损 / 止盈线：</label>
+            <div class="dual-inputs">
+              <select v-model.number="customForm.stop_loss" class="terminal-select mini">
+                <option :value="0.03">-3% 止损</option>
+                <option :value="0.05">-5% 止损</option>
+                <option :value="0.07">-7% 止损</option>
+                <option :value="0.10">-10% 止损</option>
+              </select>
+              <select v-model.number="customForm.take_profit" class="terminal-select mini">
+                <option :value="0.08">+8% 止盈</option>
+                <option :value="0.12">+12% 止盈</option>
+                <option :value="0.15">+15% 止盈</option>
+                <option :value="0.20">+20% 止盈</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="cfg-item">
+            <label>调仓轮动节奏：</label>
+            <select v-model.number="customForm.rebalance_interval" class="terminal-select">
+              <option :value="3">每 3 交易日</option>
+              <option :value="5">每 5 交易日 (周频)</option>
+              <option :value="10">每 10 交易日 (双周)</option>
+              <option :value="20">每 20 交易日 (月频)</option>
+            </select>
+          </div>
+
+          <button class="action-btn apply-cfg-btn" @click="handleInitSandbox">
+            ⚡ 应用参数并初始化推演
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. 时间加速与播放控制台 -->
+    <div class="time-control-card">
+      <div class="tc-top">
+        <div class="tc-date-info">
+          <span class="tc-badge">TIME-TRAVEL CONTROLLER</span>
+          <span class="tc-current-date">
+            正在推演：<b>{{ sandbox.current_date || '--' }}</b>
+          </span>
+          <span class="tc-step-num">
+            第 <b>{{ sandbox.current_step || 0 }}</b> / {{ sandbox.total_steps || 0 }} 交易日
+          </span>
+          <span class="tc-finish-badge" v-if="sandbox.is_finished">🏁 已完成全周期推演</span>
+        </div>
+
+        <div class="tc-speed-selector">
+          <span class="speed-lbl">加速流速：</span>
+          <button
+            class="speed-btn"
+            :class="{ active: playSpeed === 1 }"
+            @click="setPlaySpeed(1)"
+          >
+            1x (1天/秒)
           </button>
           <button
-            class="ai-action-btn execute"
-            @click="handleExecuteAiPlan"
-            :disabled="aiExecuting || !aiPlan.recommendations?.length"
+            class="speed-btn"
+            :class="{ active: playSpeed === 3 }"
+            @click="setPlaySpeed(3)"
           >
-            {{ aiExecuting ? '执行中...' : '⚡ AI 一键全自动建仓' }}
+            3x (快步)
+          </button>
+          <button
+            class="speed-btn"
+            :class="{ active: playSpeed === 10 }"
+            @click="setPlaySpeed(10)"
+          >
+            10x (飞速)
           </button>
         </div>
       </div>
 
-      <!-- AI 推荐标的网格列表 -->
-      <div class="ai-cards-grid" v-if="aiPlan.recommendations && aiPlan.recommendations.length > 0">
-        <div
-          v-for="rec in aiPlan.recommendations"
-          :key="rec.code"
-          class="ai-rec-card"
-          :class="{ 'is-held': rec.is_held }"
+      <!-- 进度条 -->
+      <div class="tc-progress-container">
+        <div class="tc-progress-fill" :style="{ width: (sandbox.progress_pct || 0) + '%' }"></div>
+      </div>
+
+      <!-- 播放与单步控制按钮组 -->
+      <div class="tc-buttons-row">
+        <button
+          class="tc-btn play-btn"
+          v-if="!isPlaying"
+          @click="startPlay"
+          :disabled="sandbox.is_finished"
         >
-          <div class="card-top">
-            <div class="stock-meta">
-              <span class="stock-name">{{ rec.name }}</span>
-              <span class="stock-code">{{ rec.code }}</span>
-              <span class="held-tag" v-if="rec.is_held">已持仓</span>
-            </div>
-            <div class="stock-price-block">
-              <span class="price-val">现价 ¥{{ rec.current_price?.toFixed(2) }}</span>
-              <span class="score-badge">胜率分 {{ rec.score }}</span>
-            </div>
-          </div>
+          ▶ 开始时间加速推演
+        </button>
+        <button
+          class="tc-btn pause-btn"
+          v-else
+          @click="pausePlay"
+        >
+          ⏸ 暂停推演
+        </button>
 
-          <div class="card-metrics">
-            <!-- 核心 1: AI 建议价格区间 -->
-            <div class="metric-box price-range">
-              <span class="m-label">🎯 AI 建议建仓区间</span>
-              <span class="m-val highlight-range">
-                ¥{{ rec.price_range_low?.toFixed(2) }} ~ ¥{{ rec.price_range_high?.toFixed(2) }}
-              </span>
-              <span class="m-sub">建议挂单中枢: ¥{{ rec.optimal_entry?.toFixed(2) }}</span>
-            </div>
+        <button
+          class="tc-btn step-btn"
+          @click="stepDay(1)"
+          :disabled="isPlaying || sandbox.is_finished"
+        >
+          ⏭ 单日步进 (+1天)
+        </button>
 
-            <!-- 核心 2: AI 推荐股数与资金占比 -->
-            <div class="metric-box shares">
-              <span class="m-label">📦 AI 推荐买入股数</span>
-              <span class="m-val highlight-shares">
-                {{ rec.recommended_shares?.toLocaleString() }} 股
-              </span>
-              <span class="m-sub">预估 ¥{{ rec.estimated_amount?.toLocaleString() }} (占总资产 {{ rec.position_pct }}%)</span>
-            </div>
-          </div>
+        <button
+          class="tc-btn step-btn"
+          @click="stepDay(10)"
+          :disabled="isPlaying || sandbox.is_finished"
+        >
+          ⏩ 快速推进 (+10天)
+        </button>
 
-          <!-- 阶梯挂单拆分建议 -->
-          <div class="ladder-box" v-if="rec.ladder && rec.ladder.length">
-            <div class="ladder-title">📊 阶梯分批挂单建议：</div>
-            <div class="ladder-items">
-              <div v-for="(l, i) in rec.ladder" :key="i" class="ladder-item">
-                <span class="l-tier">{{ l.tier }}</span>
-                <span class="l-val">挂单 ¥{{ l.price }} × <b>{{ l.shares }}股</b> (¥{{ l.amount?.toLocaleString() }})</span>
-              </div>
-            </div>
-          </div>
+        <button
+          class="tc-btn instant-btn"
+          @click="handleFastForward"
+          :disabled="isPlaying || sandbox.is_finished"
+          title="秒级直接完成全周期推演"
+        >
+          ⚡ 极速全周期秒级推演
+        </button>
 
-          <!-- 止损与目标价 -->
-          <div class="target-stop-row">
-            <span class="target-tag">🟢 目标止盈: ¥{{ rec.target_price }} (+15%)</span>
-            <span class="stop-tag">🔴 硬止损线: ¥{{ rec.stop_loss_price }} (-5%)</span>
-          </div>
-
-          <!-- AI 决策理由简析 -->
-          <div class="ai-rationale-text">
-            {{ rec.ai_rationale }}
-          </div>
-
-          <!-- 卡片底部快捷操作 -->
-          <div class="card-actions">
-            <button class="adopt-btn" @click="adoptAiRecommendation(rec)" title="将此标的、最优价格档位与推荐股数一键填入左侧下单表">
-              📥 采纳并填入下单表
-            </button>
-            <button class="kline-card-btn" @click="openKline(rec)" title="查看高清专业 K 线图与区间对照">
-              📊 查看 K 线
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div v-else-if="aiLoading" class="ai-empty-box">
-        <span class="spinner"></span>
-        <span>AI 正在结合当前可用资金与多因子模型进行深度推演计算...</span>
-      </div>
-
-      <div v-else class="ai-empty-box">
-        <span>当前无推荐标的或可用资金过低。可点击右上角「🔄 重置账户」重置 100 万现金后重新推演。</span>
+        <button
+          class="tc-btn reset-btn"
+          @click="handleInitSandbox"
+          :disabled="isPlaying"
+        >
+          🔄 重置回到起点
+        </button>
       </div>
     </div>
 
-    <!-- 交易主操作区：左侧下单与价格档位，右侧当前持仓明细 -->
-    <div class="trade-workspace">
-      <!-- 左侧：价格档位选择与模拟下单 -->
-      <div class="order-box">
-        <div class="box-header">
-          <h3 class="box-title">📝 模拟交易委托下单</h3>
-          <span class="box-tip">支持五种价格档位快速委托</span>
-        </div>
-
-        <div class="order-form">
-          <!-- 1. 标的选择 -->
-          <div class="form-item">
-            <label class="form-label">交易标的：</label>
-            <StockSearchInput
-              v-model="orderSearchKey"
-              @select="onStockSelected"
-              placeholder="输入拼音(如PAYH)、代码或名称..."
-            />
-            <div v-if="selectedStock" class="selected-stock-info">
-              <span>已选: <b>{{ selectedStock.name }} ({{ selectedStock.code }})</b></span>
-              <span class="cur-price">现价: ¥{{ selectedStock.price?.toFixed(2) || '--' }}</span>
-              <button class="mini-kline-btn" @click="openKline(selectedStock)">📊 查看K线</button>
-            </div>
-          </div>
-
-          <!-- 2. 价格档位选择 -->
-          <div class="form-item">
-            <label class="form-label">委托价格档位选择：</label>
-            <div class="tiers-buttons">
-              <button
-                v-for="t in priceTiers"
-                :key="t.key"
-                class="tier-btn"
-                :class="{ active: currentTier === t.key }"
-                @click="selectPriceTier(t)"
-              >
-                {{ t.label }}
-              </button>
-            </div>
-            <div class="custom-price-input" v-if="currentTier === 'custom'">
-              <input
-                v-model.number="orderForm.price"
-                type="number"
-                step="0.01"
-                placeholder="输入自定义委托价格"
-                class="terminal-input"
-              />
-            </div>
-            <div class="tier-hint" v-else>
-              <span>当前选定委托价: <b class="highlight-price">¥{{ orderForm.price?.toFixed(2) || '--' }}</b></span>
-            </div>
-          </div>
-
-          <!-- 3. 股数与快捷仓位百分比 -->
-          <div class="form-item">
-            <div class="shares-header">
-              <label class="form-label">委托股数：</label>
-              <div class="quick-ratios">
-                <button class="ratio-btn" @click="applyRatio(0.25)">25%仓</button>
-                <button class="ratio-btn" @click="applyRatio(0.50)">半仓</button>
-                <button class="ratio-btn" @click="applyRatio(0.75)">75%仓</button>
-                <button class="ratio-btn" @click="applyRatio(1.00)">全仓</button>
-              </div>
-            </div>
-            <input
-              v-model.number="orderForm.shares"
-              type="number"
-              step="100"
-              min="100"
-              placeholder="股数(100整数倍)"
-              class="terminal-input"
-            />
-            <div class="order-calc">
-              <span>预估交易金额: <b>¥{{ (orderForm.shares * orderForm.price || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</b></span>
-            </div>
-          </div>
-
-          <!-- 4. 买卖操作按钮 -->
-          <div class="action-buttons-row">
-            <button
-              class="trade-btn buy"
-              :disabled="!canBuy || ordering"
-              @click="submitOrder('买入')"
-            >
-              🔴 模拟买入建仓
-            </button>
-            <button
-              class="trade-btn sell"
-              :disabled="!canSell || ordering"
-              @click="submitOrder('卖出')"
-            >
-              🟢 模拟卖出平仓
-            </button>
-          </div>
-        </div>
+    <!-- 3. AI 盈利水平核心指标看板 (探究盈利能力) -->
+    <div class="metrics-grid">
+      <!-- 策略累计收益率 -->
+      <div class="metric-card main">
+        <span class="m-title">AI 策略累计收益率</span>
+        <span class="m-val" :class="sandbox.metrics?.total_return_pct >= 0 ? 'text-up' : 'text-down'">
+          {{ sandbox.metrics?.total_return_pct >= 0 ? '+' : '' }}{{ sandbox.metrics?.total_return_pct || '0.00' }}%
+        </span>
+        <span class="m-sub">
+          总资产: ¥{{ Number(sandbox.total_equity || sandbox.initial_cash || 1000000).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}
+        </span>
       </div>
 
-      <!-- 右侧：当前持仓列表 -->
-      <div class="positions-box">
-        <div class="box-header">
-          <h3 class="box-title">💼 当前模拟持仓明细 ({{ account.positions?.length || 0 }} 只)</h3>
-          <span class="box-tip">支持查看高清K线、一键平仓与半仓调仓</span>
-        </div>
+      <!-- 沪深300基准收益率 -->
+      <div class="metric-card">
+        <span class="m-title">同期沪深300基准</span>
+        <span class="m-val" :class="sandbox.metrics?.benchmark_return_pct >= 0 ? 'text-up' : 'text-down'">
+          {{ sandbox.metrics?.benchmark_return_pct >= 0 ? '+' : '' }}{{ sandbox.metrics?.benchmark_return_pct || '0.00' }}%
+        </span>
+        <span class="m-sub">基准对照指数走势</span>
+      </div>
 
-        <div class="table-wrapper">
+      <!-- 超额 Alpha -->
+      <div class="metric-card highlight">
+        <span class="m-title">超额 Alpha 跑赢幅度</span>
+        <span class="m-val" :class="sandbox.metrics?.alpha_pct >= 0 ? 'text-up' : 'text-down'">
+          {{ sandbox.metrics?.alpha_pct >= 0 ? '+' : '' }}{{ sandbox.metrics?.alpha_pct || '0.00' }}%
+        </span>
+        <span class="m-sub">策略大幅跑赢大盘超额收益</span>
+      </div>
+
+      <!-- 最大回撤 -->
+      <div class="metric-card">
+        <span class="m-title">历史最大回撤 (MaxDD)</span>
+        <span class="m-val text-down">
+          -{{ sandbox.metrics?.max_drawdown_pct || '0.00' }}%
+        </span>
+        <span class="m-sub">峰值至谷底最大跌幅</span>
+      </div>
+
+      <!-- 实盘胜率 -->
+      <div class="metric-card">
+        <span class="m-title">AI 交易胜率</span>
+        <span class="m-val text-warning">
+          {{ sandbox.metrics?.win_rate_pct || '0.0' }}%
+        </span>
+        <span class="m-sub">已结算交易 {{ sandbox.metrics?.total_trades || 0 }} 笔</span>
+      </div>
+
+      <!-- 盈亏比与夏普 -->
+      <div class="metric-card">
+        <span class="m-title">盈亏比 / 年化夏普比率</span>
+        <span class="m-val">
+          {{ sandbox.metrics?.profit_loss_ratio || '1.00' }} / {{ sandbox.metrics?.sharpe_ratio || '0.00' }}
+        </span>
+        <span class="m-sub">胜率与风报比兼顾</span>
+      </div>
+    </div>
+
+    <!-- 4. 动态资产净值曲线 vs 沪深300基准 (ECharts) -->
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div class="cch-left">
+          <span class="cch-title">📈 策略净值走势 vs 沪深300 基准 (实时动态生成)</span>
+          <span class="cch-tip">实线为 AI 策略净值，虚线为同期大盘基准，随时间推进动态延伸</span>
+        </div>
+        <div class="cch-legend">
+          <span class="leg-item"><span class="leg-color strategy"></span>AI 策略净值</span>
+          <span class="leg-item"><span class="leg-color benchmark"></span>沪深300基准</span>
+        </div>
+      </div>
+      <div ref="curveChartRef" class="equity-chart-box"></div>
+    </div>
+
+    <!-- 5. 推演中的动态持仓与调仓流水表 -->
+    <div class="details-split-grid">
+      <!-- 左侧：当前推演持仓 -->
+      <div class="detail-box">
+        <div class="detail-header">
+          <h3 class="dh-title">💼 推演当前持仓 ({{ sandbox.positions?.length || 0 }} 只)</h3>
+          <span class="dh-cash">可用现金: ¥{{ Number(sandbox.cash || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</span>
+        </div>
+        <div class="detail-table-wrapper">
           <table class="terminal-table">
             <thead>
               <tr>
                 <th>代码</th>
                 <th>名称</th>
-                <th>持仓股数</th>
-                <th>持仓成本</th>
-                <th>最新价</th>
+                <th>股数</th>
+                <th>买入成本</th>
+                <th>当前价</th>
                 <th>持仓市值</th>
                 <th>浮动盈亏</th>
-                <th>快捷操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-if="!account.positions || account.positions.length === 0">
-                <td colspan="8" class="empty-cell">
-                  当前暂无持仓。可通过上方 AI 自主推演「📥 采纳下单」或点击顶部「🎲 随机生成持仓」一键初始化体验！
+              <tr v-if="!sandbox.positions || sandbox.positions.length === 0">
+                <td colspan="7" class="empty-row">当前持仓为空，时间推进后 AI 将自动选股建仓</td>
+              </tr>
+              <tr v-for="pos in sandbox.positions" :key="pos.code">
+                <td><b>{{ pos.code }}</b></td>
+                <td>{{ pos.name }}</td>
+                <td>{{ pos.shares }} 股</td>
+                <td>¥{{ Number(pos.avg_cost).toFixed(2) }}</td>
+                <td>¥{{ Number(pos.current_price).toFixed(2) }}</td>
+                <td>¥{{ Number(pos.market_value).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</td>
+                <td :class="pos.pnl >= 0 ? 'text-up' : 'text-down'">
+                  {{ pos.pnl >= 0 ? '+' : '' }}{{ pos.pnl_pct }}%
                 </td>
               </tr>
-              <tr v-for="p in account.positions" :key="p.code">
-                <td class="code-col"><b>{{ p.code }}</b></td>
-                <td><b>{{ p.name }}</b></td>
-                <td class="num-col">{{ Number(p.shares).toLocaleString() }}</td>
-                <td class="num-col">¥{{ p.avg_cost?.toFixed(2) }}</td>
-                <td class="num-col">¥{{ p.price?.toFixed(2) }}</td>
-                <td class="num-col">¥{{ p.market_value?.toLocaleString() }}</td>
-                <td :class="p.pnl >= 0 ? 'text-up' : 'text-down'">
-                  <b>{{ p.pnl >= 0 ? '+' : '' }}{{ (p.pnl_pct * 100)?.toFixed(2) }}%</b>
-                  <br />
-                  <span class="sub-pnl">({{ p.pnl >= 0 ? '+' : '' }}¥{{ p.pnl?.toFixed(0) }})</span>
-                </td>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 右侧：AI 调仓流水明细 -->
+      <div class="detail-box">
+        <div class="detail-header">
+          <h3 class="dh-title">📜 AI 调仓与风控执行流水 (最近 30 笔)</h3>
+          <span class="dh-tip">包含 AI 智能建仓、达标止盈与硬止损离场</span>
+        </div>
+        <div class="detail-table-wrapper">
+          <table class="terminal-table">
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>标的</th>
+                <th>动作</th>
+                <th>价格</th>
+                <th>股数</th>
+                <th>盈亏</th>
+                <th>触发原因</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="!sandbox.trades || sandbox.trades.length === 0">
+                <td colspan="7" class="empty-row">暂无调仓流水，启动时间加速推演后将实时更新</td>
+              </tr>
+              <tr v-for="(tr, idx) in sandbox.trades" :key="idx">
+                <td class="time-cell">{{ tr.date }}</td>
+                <td><b>{{ tr.name }}</b> ({{ tr.code }})</td>
                 <td>
-                  <div class="quick-actions">
-                    <button class="mini-btn kline" @click="openKline(p)" title="查看高清 K 线">📊 K线</button>
-                    <button class="mini-btn sell" @click="quickSell(p, 1.0)">平仓</button>
-                    <button class="mini-btn half" @click="quickSell(p, 0.5)">半仓</button>
-                  </div>
+                  <span class="side-badge" :class="tr.side === '买入' ? 'buy' : 'sell'">
+                    {{ tr.side }}
+                  </span>
                 </td>
+                <td>¥{{ Number(tr.price).toFixed(2) }}</td>
+                <td>{{ tr.shares }}</td>
+                <td :class="tr.pnl >= 0 ? 'text-up' : 'text-down'">
+                  <span v-if="tr.side === '卖出'">{{ tr.pnl >= 0 ? '+' : '' }}¥{{ tr.pnl }} ({{ tr.pnl_pct }}%)</span>
+                  <span v-else class="text-muted">--</span>
+                </td>
+                <td class="reason-cell">{{ tr.reason }}</td>
               </tr>
             </tbody>
           </table>
@@ -336,343 +449,403 @@
       </div>
     </div>
 
-    <!-- 底部：历史交易成交流水 -->
-    <div class="history-section">
-      <div class="box-header">
-        <h3 class="box-title">📜 模拟交易历史成交流水</h3>
-      </div>
-      <div class="table-wrapper">
-        <table class="terminal-table">
-          <thead>
-            <tr>
-              <th width="140">时间</th>
-              <th width="80">方向</th>
-              <th width="110">档位类型</th>
-              <th width="100">代码</th>
-              <th width="110">名称</th>
-              <th width="100">成交股数</th>
-              <th width="100">成交价格</th>
-              <th width="120">成交金额</th>
-              <th width="80">状态</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="!account.orders || account.orders.length === 0">
-              <td colspan="9" class="empty-cell">暂无模拟交易成交流水。</td>
-            </tr>
-            <tr v-for="o in account.orders" :key="o.id">
-              <td class="time-col">{{ o.timestamp }}</td>
-              <td>
-                <span class="side-badge" :class="o.side === '买入' ? 'buy' : 'sell'">{{ o.side }}</span>
-              </td>
-              <td><span class="type-tag">{{ o.order_type || '市价' }}</span></td>
-              <td class="code-col">{{ o.code }}</td>
-              <td>{{ o.name }}</td>
-              <td class="num-col">{{ Number(o.shares).toLocaleString() }}</td>
-              <td class="num-col">¥{{ Number(o.price).toFixed(2) }}</td>
-              <td class="num-col">¥{{ Number(o.amount).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</td>
-              <td><span class="status-done">已成交</span></td>
-            </tr>
-          </tbody>
-        </table>
+    <!-- 6. 多方案同台竞技对比弹窗 -->
+    <div class="modal-backdrop" v-if="compareModalVisible" @click.self="compareModalVisible = false">
+      <div class="compare-modal-card">
+        <div class="cm-header">
+          <h3 class="cm-title">🏁 AI 4 大方案全周期竞技对比</h3>
+          <button class="close-btn" @click="compareModalVisible = false">✕</button>
+        </div>
+
+        <div class="cm-body">
+          <div v-if="compareLoading" class="compare-loading">
+            <span class="spinner"></span>
+            <span>正在同时推演 4 种方案并测算全周期收益对比...</span>
+          </div>
+
+          <div v-else class="compare-content">
+            <!-- 榜单对比表格 -->
+            <div class="leaderboard-box">
+              <table class="terminal-table">
+                <thead>
+                  <tr>
+                    <th>方案名称</th>
+                    <th>累计收益率</th>
+                    <th>超额 Alpha</th>
+                    <th>最大回撤</th>
+                    <th>交易胜率</th>
+                    <th>夏普比率</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(summary, skey) in compareData.summary" :key="skey">
+                    <td><b>{{ summary.name }}</b></td>
+                    <td :class="summary.total_return_pct >= 0 ? 'text-up' : 'text-down'">
+                      {{ summary.total_return_pct >= 0 ? '+' : '' }}{{ summary.total_return_pct }}%
+                    </td>
+                    <td :class="summary.alpha_pct >= 0 ? 'text-up' : 'text-down'">
+                      {{ summary.alpha_pct >= 0 ? '+' : '' }}{{ summary.alpha_pct }}%
+                    </td>
+                    <td class="text-down">-{{ summary.max_drawdown_pct }}%</td>
+                    <td class="text-warning">{{ summary.win_rate_pct }}%</td>
+                    <td><b>{{ summary.sharpe_ratio }}</b></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- 对比走势图 -->
+            <div ref="compareChartRef" class="compare-chart-canvas"></div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- 高清 K 线弹窗 -->
+    <!-- K 线查看弹窗 -->
     <KLineModal
       v-model:visible="klineVisible"
-      :stock="klineStock"
+      :stock="selectedStockForKline"
     />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import * as echarts from 'echarts'
 import { api } from '../api'
-import StockSearchInput from '../components/StockSearchInput.vue'
 import KLineModal from '../components/KLineModal.vue'
 
-const loading = ref(false)
-const ordering = ref(false)
-const account = ref({
-  initial_cash: 1000000,
+const seeding = ref(false)
+const seedInfo = ref(null)
+
+const currentScheme = ref('momentum') // 'momentum' | 'value' | 'balanced' | 'custom'
+const playSpeed = ref(3) // 1, 3, 10
+const isPlaying = ref(false)
+let playTimer = null
+
+const sandbox = ref({
+  current_date: '',
+  current_step: 0,
+  total_steps: 0,
+  progress_pct: 0,
+  is_finished: false,
   cash: 1000000,
-  market_value: 0,
   total_equity: 1000000,
-  total_pnl: 0,
-  return_pct: 0,
   positions: [],
-  orders: []
+  equity_curve: [],
+  trades: [],
+  metrics: {
+    total_return_pct: 0,
+    benchmark_return_pct: 0,
+    alpha_pct: 0,
+    max_drawdown_pct: 0,
+    win_rate_pct: 0,
+    profit_loss_ratio: 1,
+    total_trades: 0,
+    sharpe_ratio: 0,
+  }
 })
 
-// K 线弹窗状态
+const watchlistCodes = ref([])
+
+const customForm = reactive({
+  pool_filter: 'all',
+  initial_cash: 1000000,
+  max_single_weight: 0.20,
+  stop_loss: 0.05,
+  take_profit: 0.15,
+  rebalance_interval: 5,
+  max_positions: 5,
+})
+
+const curveChartRef = ref(null)
+let curveChartInstance = null
+
+const compareModalVisible = ref(false)
+const compareLoading = ref(false)
+const compareData = ref({ summary: {}, curves: {}, benchmark_curve: [] })
+const compareChartRef = ref(null)
+let compareChartInstance = null
+
 const klineVisible = ref(false)
-const klineStock = ref(null)
+const selectedStockForKline = ref(null)
 
-function openKline(stock) {
-  if (!stock?.code) return
-  klineStock.value = {
-    code: stock.code,
-    name: stock.name,
-    price: stock.price || stock.current_price || stock.avg_cost || 0
-  }
-  klineVisible.value = true
+function selectScheme(s) {
+  if (isPlaying.value) pausePlay()
+  currentScheme.value = s
+  handleInitSandbox()
 }
 
-// AI 自主推演状态
-const currentRiskPref = ref('balanced')
-const aiLoading = ref(false)
-const aiExecuting = ref(false)
-const aiPlan = ref({
-  status: '',
-  risk_pref: 'balanced',
-  risk_label: '平衡稳进型',
-  available_cash: 0,
-  total_equity: 0,
-  recommendations: []
-})
+function setPlaySpeed(sp) {
+  playSpeed.value = sp
+  if (isPlaying.value) {
+    pausePlay()
+    startPlay()
+  }
+}
 
-const orderSearchKey = ref('')
-const selectedStock = ref(null)
-
-const priceTiers = [
-  { key: 'market', label: '市价(最新价)', delta: 0.0 },
-  { key: 'bid1', label: '买一档(-0.2%)', delta: -0.002 },
-  { key: 'bid2', label: '买二档(-0.5%)', delta: -0.005 },
-  { key: 'ask1', label: '卖一档(+0.3%)', delta: 0.003 },
-  { key: 'custom', label: '自定义限价', delta: 0.0 },
-]
-const currentTier = ref('market')
-
-const orderForm = ref({
-  code: '',
-  name: '',
-  price: 10.0,
-  shares: 1000,
-  order_type: '市价'
-})
-
-const positionRatio = computed(() => {
-  if (!account.value.total_equity) return 0
-  return Math.round((account.value.market_value / account.value.total_equity) * 100)
-})
-
-const canBuy = computed(() => {
-  return orderForm.value.code && orderForm.value.shares > 0 && orderForm.value.price > 0
-})
-
-const canSell = computed(() => {
-  if (!orderForm.value.code || orderForm.value.shares <= 0) return false
-  const p = account.value.positions?.find(pos => pos.code === orderForm.value.code)
-  return p && p.shares >= orderForm.value.shares
-})
-
-async function loadAccount() {
-  loading.value = true
+async function handleSeedData() {
+  seeding.value = true
   try {
-    const res = await api.getPaperAccount()
-    if (res) account.value = res
+    const res = await api.seedSandboxData(true)
+    seedInfo.value = res
+    await handleInitSandbox()
   } catch (err) {
-    console.error('Failed to load paper account:', err)
+    console.error('Failed to seed data:', err)
   } finally {
-    loading.value = false
+    seeding.value = false
   }
 }
 
-async function fetchAiSimulation() {
-  aiLoading.value = true
+async function handleInitSandbox() {
+  pausePlay()
   try {
-    const res = await api.getAiSimulation(currentRiskPref.value)
-    if (res) {
-      aiPlan.value = res
+    const params = {
+      scheme: currentScheme.value,
+      start_date: '2023-01-03',
+      end_date: '2024-12-31',
+      initial_cash: currentScheme.value === 'custom' ? customForm.initial_cash : 1000000,
+      custom_config: currentScheme.value === 'custom' ? { ...customForm } : null,
+      watchlist_codes: watchlistCodes.value,
+    }
+    const state = await api.initSandbox(params)
+    sandbox.value = state
+    updateCurveChart(state.equity_curve)
+  } catch (err) {
+    console.error('Failed to init sandbox:', err)
+  }
+}
+
+async function stepDay(days = 1) {
+  try {
+    const state = await api.stepSandbox(days)
+    sandbox.value = state
+    updateCurveChart(state.equity_curve)
+    if (state.is_finished) {
+      pausePlay()
     }
   } catch (err) {
-    console.error('Failed to fetch AI simulation:', err)
-  } finally {
-    aiLoading.value = false
+    console.error('Failed to step sandbox:', err)
+    pausePlay()
   }
 }
 
-function switchRiskPref(pref) {
-  if (currentRiskPref.value === pref) return
-  currentRiskPref.value = pref
-  fetchAiSimulation()
+function startPlay() {
+  if (sandbox.value.is_finished) return
+  isPlaying.value = true
+  const intervalMs = playSpeed.value === 1 ? 1000 : (playSpeed.value === 3 ? 350 : 100)
+  playTimer = setInterval(() => {
+    stepDay(1)
+  }, intervalMs)
 }
 
-function adoptAiRecommendation(rec) {
-  orderSearchKey.value = `${rec.name} ${rec.code}`
-  selectedStock.value = {
-    code: rec.code,
-    name: rec.name,
-    price: rec.optimal_entry
+function pausePlay() {
+  isPlaying.value = false
+  if (playTimer) {
+    clearInterval(playTimer)
+    playTimer = null
   }
-  orderForm.value.code = rec.code
-  orderForm.value.name = rec.name
-  orderForm.value.price = rec.optimal_entry
-  orderForm.value.shares = rec.recommended_shares
-  orderForm.value.order_type = '买一档(-0.2%)'
-  currentTier.value = 'bid1'
-
-  // 平滑滚动至下单委托区域
-  const el = document.querySelector('.order-box')
-  if (el) el.scrollIntoView({ behavior: 'smooth' })
 }
 
-async function handleExecuteAiPlan() {
-  const count = aiPlan.value.recommendations?.length || 0
-  if (!count) return
-  if (!confirm(`确认根据当前 AI 模拟推演结果，自动执行 ${count} 笔模拟建仓委托吗？`)) {
-    return
-  }
-  aiExecuting.value = true
+async function handleFastForward() {
+  pausePlay()
   try {
-    const res = await api.executeAiSimulation({
-      risk_pref: currentRiskPref.value,
-      recommendations: aiPlan.value.recommendations
+    const state = await api.fastForwardSandbox()
+    sandbox.value = state
+    updateCurveChart(state.equity_curve)
+  } catch (err) {
+    console.error('Failed to fast forward:', err)
+  }
+}
+
+function updateCurveChart(curve) {
+  if (!curveChartRef.value) return
+  if (!curveChartInstance) {
+    curveChartInstance = echarts.init(curveChartRef.value, 'dark')
+  }
+
+  const dates = (curve || []).map(p => p.date)
+  const strategyRet = (curve || []).map(p => p.return_pct)
+  const benchRet = (curve || []).map(p => p.benchmark_return_pct)
+
+  const option = {
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#161b22',
+      borderColor: '#30363d',
+      textStyle: { color: '#e2e8f0', fontSize: 12 },
+      formatter: (params) => {
+        if (!params.length) return ''
+        let res = `<div style="font-weight:700;margin-bottom:4px">${params[0].axisValue}</div>`
+        params.forEach(p => {
+          const color = p.color
+          res += `<div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px"></span>`
+          res += `${p.seriesName}: <b>${p.value >= 0 ? '+' : ''}${p.value}%</b></div>`
+        })
+        return res
+      }
+    },
+    grid: {
+      left: '4%',
+      right: '3%',
+      top: '12%',
+      bottom: '10%',
+      containLabel: true
+    },
+    xAxis: {
+      type: 'category',
+      data: dates,
+      axisLine: { lineStyle: { color: '#30363d' } },
+      axisLabel: { color: '#8b949e', fontSize: 11 }
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: {
+        color: '#8b949e',
+        formatter: '{value}%'
+      },
+      splitLine: { lineStyle: { color: '#161e2e', type: 'dashed' } }
+    },
+    series: [
+      {
+        name: 'AI 策略收益率',
+        type: 'line',
+        data: strategyRet,
+        smooth: true,
+        showSymbol: false,
+        lineStyle: { color: '#58a6ff', width: 2.5 },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(88, 166, 255, 0.35)' },
+            { offset: 1, color: 'rgba(88, 166, 255, 0.02)' }
+          ])
+        }
+      },
+      {
+        name: '沪深300基准收益率',
+        type: 'line',
+        data: benchRet,
+        smooth: true,
+        showSymbol: false,
+        lineStyle: { color: '#eab308', width: 2, type: 'dashed' }
+      }
+    ]
+  }
+
+  curveChartInstance.setOption(option, true)
+}
+
+async function openCompareModal() {
+  compareModalVisible.value = true
+  compareLoading.value = true
+  try {
+    const res = await api.compareSandboxSchemes({
+      start_date: '2023-01-03',
+      end_date: '2024-12-31',
+      initial_cash: 1000000,
+      custom_config: { ...customForm },
+      watchlist_codes: watchlistCodes.value,
     })
-    alert(`🎉 AI 模拟执行完成！成功撮合建仓 ${res.executed_count} 只标的，已全量入账。`)
-    await loadAccount()
-    await fetchAiSimulation()
+    compareData.value = res
+    await nextTick()
+    renderCompareChart(res)
   } catch (err) {
-    alert(err.response?.data?.detail || 'AI 执行失败')
+    console.error('Failed to compare schemes:', err)
   } finally {
-    aiExecuting.value = false
+    compareLoading.value = false
   }
 }
 
-function onStockSelected(stock) {
-  selectedStock.value = stock
-  orderForm.value.code = stock.code
-  orderForm.value.name = stock.name
-  if (stock.price > 0) {
-    applyTierPrice(stock.price, currentTier.value)
+function renderCompareChart(data) {
+  if (!compareChartRef.value) return
+  if (!compareChartInstance) {
+    compareChartInstance = echarts.init(compareChartRef.value, 'dark')
   }
-}
 
-function selectPriceTier(tier) {
-  currentTier.value = tier.key
-  orderForm.value.order_type = tier.label
-  if (selectedStock.value?.price && tier.key !== 'custom') {
-    applyTierPrice(selectedStock.value.price, tier.key)
+  const curves = data.curves || {}
+  const bench = data.benchmark_curve || []
+  const dates = bench.map(p => p.date)
+
+  const series = []
+  const colors = {
+    momentum: '#ff4d4f',
+    value: '#2ea043',
+    balanced: '#58a6ff',
+    custom: '#a855f7'
   }
-}
-
-function applyTierPrice(basePrice, tierKey) {
-  const tier = priceTiers.find(t => t.key === tierKey)
-  if (tier) {
-    orderForm.value.price = roundToTick(basePrice * (1 + tier.delta))
+  const names = {
+    momentum: 'AI 强势动量',
+    value: 'AI 稳健价值',
+    balanced: 'AI 双引擎均衡',
+    custom: '自定义方案'
   }
-}
 
-function roundToTick(val) {
-  return Math.round(val * 100) / 100
-}
-
-function applyRatio(ratio) {
-  if (!orderForm.value.price || orderForm.value.price <= 0) return
-  const budget = account.value.cash * ratio
-  const rawShares = budget / orderForm.value.price
-  const shares = Math.max(100, Math.floor(rawShares / 100) * 100)
-  orderForm.value.shares = shares
-}
-
-async function submitOrder(side) {
-  if (!orderForm.value.code) {
-    alert('请先选择交易标的！')
-    return
-  }
-  ordering.value = true
-  try {
-    await api.placePaperOrder({
-      code: orderForm.value.code,
-      name: orderForm.value.name,
-      side: side,
-      shares: orderForm.value.shares,
-      price: orderForm.value.price,
-      order_type: orderForm.value.order_type
+  for (const [k, pts] of Object.entries(curves)) {
+    series.push({
+      name: names[k] || k,
+      type: 'line',
+      data: pts.map(p => p.return_pct),
+      smooth: true,
+      showSymbol: false,
+      lineStyle: { color: colors[k] || '#c9d1d9', width: 2.2 }
     })
-    alert(`委托下单成功！已撮合成交 ${side} ${orderForm.value.name} ${orderForm.value.shares} 股`)
-    await loadAccount()
-    await fetchAiSimulation()
-  } catch (err) {
-    alert(err.response?.data?.detail || '下单失败')
-  } finally {
-    ordering.value = false
   }
+
+  series.push({
+    name: '沪深300基准',
+    type: 'line',
+    data: bench.map(p => p.return_pct),
+    smooth: true,
+    showSymbol: false,
+    lineStyle: { color: '#eab308', width: 2, type: 'dashed' }
+  })
+
+  const option = {
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis' },
+    legend: { textStyle: { color: '#c9d1d9' } },
+    grid: { left: '4%', right: '3%', top: '15%', bottom: '10%', containLabel: true },
+    xAxis: { type: 'category', data: dates, axisLabel: { color: '#8b949e' } },
+    yAxis: { type: 'value', axisLabel: { formatter: '{value}%', color: '#8b949e' } },
+    series
+  }
+
+  compareChartInstance.setOption(option, true)
 }
 
-async function quickSell(pos, ratio) {
-  const sellShares = Math.max(100, Math.floor((pos.shares * ratio) / 100) * 100)
-  const actionLabel = ratio === 1.0 ? '全额平仓' : '半仓减持'
-  if (!confirm(`确定对 ${pos.name} (${pos.code}) 执行${actionLabel} (拟卖出 ${sellShares} 股) 吗？`)) {
-    return
-  }
-  loading.value = true
+function handleResize() {
+  if (curveChartInstance) curveChartInstance.resize()
+  if (compareChartInstance) compareChartInstance.resize()
+}
+
+onMounted(async () => {
+  window.addEventListener('resize', handleResize)
+  // 获取自选股
   try {
-    await api.placePaperOrder({
-      code: pos.code,
-      name: pos.name,
-      side: '卖出',
-      shares: sellShares,
-      price: pos.price,
-      order_type: '市价平仓'
-    })
-    alert(`平仓执行成功！`)
-    await loadAccount()
-    await fetchAiSimulation()
+    const wl = await api.getWatchlist()
+    if (wl) watchlistCodes.value = wl.map(s => s.code)
   } catch (err) {
-    alert(err.response?.data?.detail || '平仓失败')
-  } finally {
-    loading.value = false
+    console.debug('Failed to get watchlist:', err)
   }
-}
 
-async function handleRandomPortfolio() {
-  loading.value = true
+  // 检查种子状态
   try {
-    const res = await api.makeRandomPortfolio()
-    if (res) account.value = res
-    alert('🎲 已成功随机生成并初始化持仓组合！')
-    await fetchAiSimulation()
+    const seedRes = await api.seedSandboxData(false)
+    seedInfo.value = seedRes
   } catch (err) {
-    alert(err.response?.data?.detail || '随机生成持仓失败')
-  } finally {
-    loading.value = false
+    console.debug('Seed check:', err)
   }
-}
 
-async function handleShockTest() {
-  loading.value = true
-  try {
-    const res = await api.shockPortfolio()
-    if (res) account.value = res
-    alert('⚡ 已施加极端行情震荡！请观察盈亏变化与止损止盈预警！')
-    await fetchAiSimulation()
-  } catch (err) {
-    alert(err.response?.data?.detail || '压力测试失败')
-  } finally {
-    loading.value = false
-  }
-}
+  // 初始化沙盒
+  await handleInitSandbox()
+})
 
-async function handleResetAccount() {
-  if (!confirm('确定清空所有模拟持仓与委托历史，重置为 100 万元初始现金吗？')) return
-  loading.value = true
-  try {
-    await api.resetPaperAccount()
-    await loadAccount()
-    await fetchAiSimulation()
-    alert('🔄 模拟账户已成功重置为 100 万元初始现金！')
-  } catch (err) {
-    alert(err.response?.data?.detail || '重置失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(() => {
-  loadAccount()
-  fetchAiSimulation()
+onUnmounted(() => {
+  pausePlay()
+  window.removeEventListener('resize', handleResize)
+  if (curveChartInstance) curveChartInstance.dispose()
+  if (compareChartInstance) compareChartInstance.dispose()
 })
 </script>
 
@@ -680,21 +853,22 @@ onMounted(() => {
 .view-container {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  height: 100%;
+  padding: 16px 20px;
+  gap: 16px;
+  overflow-y: auto;
 }
 
 .view-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: #161b22;
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  padding: 14px 20px;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .view-title {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
   color: #f0f6fc;
 }
@@ -702,672 +876,531 @@ onMounted(() => {
 .view-subtitle {
   font-size: 12px;
   color: #8b949e;
-  margin-top: 4px;
+  margin-top: 3px;
   display: block;
 }
 
 .toolbar-right {
   display: flex;
-  gap: 12px;
+  gap: 10px;
 }
 
 .action-btn {
-  background: #21262d;
-  color: #c9d1d9;
   border: 1px solid #30363d;
-  padding: 7px 14px;
+  padding: 7px 16px;
   border-radius: 6px;
   font-size: 13px;
-  cursor: pointer;
   font-weight: 600;
+  cursor: pointer;
   transition: all 0.2s;
 }
 
-.action-btn:hover:not(:disabled) {
+.seed-btn {
+  background: #1c2738;
+  border-color: #2b3d5b;
+  color: #58a6ff;
+}
+
+.seed-btn:hover:not(:disabled) {
+  background: #2b3d5b;
+}
+
+.compare-btn {
+  background: #21262d;
+  border-color: #30363d;
+  color: #f0f6fc;
+}
+
+.compare-btn:hover:not(:disabled) {
   border-color: #58a6ff;
   color: #58a6ff;
 }
 
-.action-btn.random-btn {
-  background: rgba(168, 85, 247, 0.15);
-  border-color: #a855f7;
-  color: #d8b4fe;
-}
-.action-btn.random-btn:hover {
-  background: rgba(168, 85, 247, 0.25);
-}
-
-.action-btn.shock-btn {
-  background: rgba(234, 179, 8, 0.15);
-  border-color: #eab308;
-  color: #fde047;
-}
-.action-btn.shock-btn:hover {
-  background: rgba(234, 179, 8, 0.25);
+/* 状态提示条 */
+.seed-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: rgba(88, 166, 255, 0.08);
+  border: 1px solid rgba(88, 166, 255, 0.2);
+  border-radius: 6px;
+  font-size: 12px;
+  color: #c9d1d9;
 }
 
-.action-btn.reset-btn {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: #ef4444;
-  color: #fca5a5;
-}
-.action-btn.reset-btn:hover {
-  background: rgba(239, 68, 68, 0.25);
+.seed-status-bar b {
+  color: #58a6ff;
 }
 
-/* 账户资产网格 */
-.account-summary-grid {
+/* 方案卡片 */
+.scheme-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.section-label-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sec-badge {
+  background: #238636;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.sec-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f0f6fc;
+}
+
+.schemes-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.scheme-card {
+  background: #121824;
+  border: 1px solid #283347;
+  border-radius: 8px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scheme-card:hover {
+  border-color: #3b82f6;
+  transform: translateY(-2px);
+}
+
+.scheme-card.active {
+  border-color: #58a6ff;
+  background: #162033;
+  box-shadow: 0 0 12px rgba(88, 166, 255, 0.2);
+}
+
+.sc-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sc-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f0f6fc;
+  flex: 1;
+}
+
+.sc-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.sc-tag.momentum { background: rgba(255, 77, 79, 0.2); color: #ff4d4f; }
+.sc-tag.value { background: rgba(46, 160, 67, 0.2); color: #2ea043; }
+.sc-tag.balanced { background: rgba(88, 166, 255, 0.2); color: #58a6ff; }
+.sc-tag.custom { background: rgba(168, 85, 247, 0.2); color: #a855f7; }
+
+.sc-desc {
+  font-size: 12px;
+  color: #8b949e;
+  line-height: 1.5;
+  margin: 0;
+  flex: 1;
+}
+
+.sc-footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #8b949e;
+  border-top: 1px solid #1c2738;
+  padding-top: 6px;
+}
+
+.sc-footer b {
+  color: #e2e8f0;
+}
+
+/* 自定义方案调参面板 */
+.custom-config-panel {
+  background: #101622;
+  border: 1px solid #3b82f6;
+  border-radius: 8px;
+  padding: 14px 18px;
+}
+
+.config-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 16px;
 }
 
-.acc-card {
-  background: #161b22;
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  padding: 16px;
+.cfg-item {
   display: flex;
   flex-direction: column;
+  gap: 4px;
+}
+
+.cfg-item label {
+  font-size: 11px;
+  color: #8b949e;
+  font-weight: 600;
+}
+
+.terminal-select {
+  background: #161b22;
+  border: 1px solid #30363d;
+  color: #f0f6fc;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  outline: none;
+}
+
+.terminal-select.mini {
+  width: 95px;
+}
+
+.dual-inputs {
+  display: flex;
   gap: 6px;
 }
 
-.acc-card.main {
-  background: linear-gradient(145deg, #1c2331, #131822);
-  border-color: #388bfd;
+.apply-cfg-btn {
+  margin-top: 16px;
+  background: #238636;
+  color: #fff;
+  border: none;
+  align-self: flex-end;
 }
 
-.acc-sub {
+/* 时间控制台 */
+.time-control-card {
+  background: #121824;
+  border: 1px solid #283347;
+  border-radius: 8px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tc-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.tc-date-info {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.tc-badge {
+  background: #3b82f6;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.tc-current-date {
+  font-size: 16px;
+  color: #f0f6fc;
+}
+
+.tc-current-date b {
+  color: #58a6ff;
+  font-family: monospace;
+}
+
+.tc-step-num {
   font-size: 12px;
   color: #8b949e;
 }
 
-.acc-val {
+.tc-finish-badge {
+  font-size: 11px;
+  color: #2ea043;
+  font-weight: 700;
+  background: rgba(46, 160, 67, 0.15);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.tc-speed-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.speed-lbl {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.speed-btn {
+  background: #161b22;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.speed-btn.active {
+  background: #238636;
+  color: #ffffff;
+  border-color: #2ea043;
+}
+
+.tc-progress-container {
+  height: 6px;
+  background: #161b22;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.tc-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #00e676);
+  transition: width 0.1s linear;
+}
+
+.tc-buttons-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tc-btn {
+  padding: 7px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.play-btn {
+  background: #238636;
+  color: #ffffff;
+}
+
+.play-btn:hover:not(:disabled) {
+  background: #2ea043;
+}
+
+.pause-btn {
+  background: #d29922;
+  color: #161b22;
+}
+
+.step-btn {
+  background: #21262d;
+  color: #c9d1d9;
+  border-color: #30363d;
+}
+
+.step-btn:hover:not(:disabled) {
+  border-color: #58a6ff;
+  color: #58a6ff;
+}
+
+.instant-btn {
+  background: #3b82f6;
+  color: #ffffff;
+}
+
+.instant-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.reset-btn {
+  background: #21262d;
+  color: #8b949e;
+  border-color: #30363d;
+}
+
+/* 核心盈利指标卡片 */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.metric-card {
+  background: #121824;
+  border: 1px solid #283347;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.metric-card.main {
+  background: #131c2e;
+  border-color: #3b82f6;
+}
+
+.metric-card.highlight {
+  background: #182218;
+  border-color: #2ea043;
+}
+
+.m-title {
+  font-size: 11px;
+  color: #8b949e;
+  font-weight: 600;
+}
+
+.m-val {
   font-size: 22px;
   font-weight: 700;
   font-family: monospace;
   color: #f0f6fc;
 }
 
-.acc-val.total {
-  color: #58a6ff;
-}
-
-.acc-val.cash {
-  color: #3fb950;
-}
-
-.acc-desc {
+.m-sub {
   font-size: 11px;
   color: #8b949e;
 }
 
-/* 🤖 AI 自主模拟推演面板 */
-.ai-pilot-section {
-  background: #111722;
-  border: 1px solid #1f6feb;
-  border-radius: 10px;
-  padding: 18px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  box-shadow: 0 4px 20px rgba(31, 111, 235, 0.1);
-}
+.text-up { color: #ff4d4f; }
+.text-down { color: #00e676; }
+.text-warning { color: #eab308; }
 
-.ai-section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 14px;
-  border-bottom: 1px solid #212d3d;
-  padding-bottom: 14px;
-}
-
-.ai-title-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.ai-badge {
-  background: linear-gradient(135deg, #1f6feb, #8a2be2);
-  color: #ffffff;
-  font-size: 10px;
-  font-weight: 800;
-  padding: 2px 7px;
-  border-radius: 4px;
-  letter-spacing: 0.5px;
-}
-
-.ai-title {
-  font-size: 17px;
-  font-weight: 700;
-  color: #f0f6fc;
-}
-
-.ai-subtitle {
-  font-size: 12px;
-  color: #8b949e;
-  margin-top: 4px;
-  display: block;
-}
-
-.ai-subtitle b {
-  color: #58a6ff;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.risk-pref-selector {
-  display: flex;
-  background: #090d13;
-  border: 1px solid #30363d;
-  border-radius: 6px;
-  padding: 2px;
-}
-
-.risk-pref-selector button {
-  background: transparent;
-  border: none;
-  color: #8b949e;
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.risk-pref-selector button.active {
-  background: #1f6feb;
-  color: #ffffff;
-  font-weight: 600;
-}
-
-.ai-action-btn {
-  border: none;
-  padding: 7px 14px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.ai-action-btn.refresh {
-  background: #21262d;
-  color: #58a6ff;
-  border: 1px solid #388bfd;
-}
-.ai-action-btn.refresh:hover:not(:disabled) {
-  background: rgba(56, 139, 253, 0.15);
-}
-
-.ai-action-btn.execute {
-  background: linear-gradient(135deg, #238636, #2ea043);
-  color: #ffffff;
-  box-shadow: 0 2px 8px rgba(46, 160, 67, 0.4);
-}
-.ai-action-btn.execute:hover:not(:disabled) {
-  filter: brightness(1.1);
-}
-
-/* AI 推荐卡片网格 */
-.ai-cards-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 16px;
-}
-
-.ai-rec-card {
-  background: #161f2e;
-  border: 1px solid #2a384c;
+/* 图表卡片 */
+.chart-card {
+  background: #121824;
+  border: 1px solid #283347;
   border-radius: 8px;
   padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  transition: all 0.2s;
-}
-
-.ai-rec-card:hover {
-  border-color: #58a6ff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-}
-
-.card-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.stock-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.stock-name {
-  font-size: 16px;
-  font-weight: 700;
-  color: #f0f6fc;
-}
-
-.stock-code {
-  font-size: 12px;
-  font-family: monospace;
-  color: #8b949e;
-  background: #0d121a;
-  padding: 1px 5px;
-  border-radius: 4px;
-}
-
-.held-tag {
-  font-size: 10px;
-  background: rgba(56, 139, 253, 0.2);
-  color: #58a6ff;
-  padding: 1px 5px;
-  border-radius: 4px;
-}
-
-.stock-price-block {
-  text-align: right;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-}
-
-.price-val {
-  font-size: 13px;
-  color: #e2e8f0;
-  font-family: monospace;
-  font-weight: 600;
-}
-
-.score-badge {
-  font-size: 10px;
-  background: rgba(234, 179, 8, 0.2);
-  color: #fde047;
-  padding: 1px 5px;
-  border-radius: 4px;
-  font-weight: 600;
-}
-
-/* 核心两项度量 */
-.card-metrics {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.metric-box {
-  background: #0d131d;
-  border: 1px solid #232f3e;
-  border-radius: 6px;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.metric-box .m-label {
-  font-size: 11px;
-  color: #8b949e;
-}
-
-.highlight-range {
-  font-size: 13px;
-  font-weight: 700;
-  color: #58a6ff;
-  font-family: monospace;
-}
-
-.highlight-shares {
-  font-size: 15px;
-  font-weight: 700;
-  color: #f59e0b;
-  font-family: monospace;
-}
-
-.metric-box .m-sub {
-  font-size: 10px;
-  color: #8b949e;
-}
-
-/* 阶梯挂单建议 */
-.ladder-box {
-  background: rgba(13, 19, 29, 0.6);
-  border: 1px dashed #2a384c;
-  border-radius: 6px;
-  padding: 8px 10px;
-  font-size: 11px;
-}
-
-.ladder-title {
-  color: #8b949e;
-  margin-bottom: 4px;
-  font-weight: 600;
-}
-
-.ladder-items {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.ladder-item {
-  display: flex;
-  justify-content: space-between;
-  color: #c9d1d9;
-}
-
-.ladder-item .l-tier {
-  color: #8b949e;
-}
-
-.ladder-item .l-val b {
-  color: #f59e0b;
-}
-
-.target-stop-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  background: #090e16;
-  padding: 6px 10px;
-  border-radius: 4px;
-}
-
-.target-tag {
-  color: #00e676;
-}
-
-.stop-tag {
-  color: #ff4d4f;
-}
-
-.ai-rationale-text {
-  font-size: 12px;
-  line-height: 1.5;
-  color: #c9d1d9;
-  background: rgba(22, 27, 34, 0.5);
-  border-left: 3px solid #1f6feb;
-  padding: 6px 10px;
-  border-radius: 0 4px 4px 0;
-}
-
-.card-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 4px;
-}
-
-.adopt-btn {
-  flex: 1;
-  background: #238636;
-  color: #ffffff;
-  border: none;
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.adopt-btn:hover {
-  background: #2ea043;
-}
-
-.kline-card-btn {
-  background: #21262d;
-  color: #58a6ff;
-  border: 1px solid #30363d;
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.kline-card-btn:hover {
-  border-color: #58a6ff;
-  background: rgba(56, 139, 253, 0.1);
-}
-
-.ai-empty-box {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 30px;
-  color: #8b949e;
-  font-size: 13px;
-}
-
-/* 交易主工作区 */
-.trade-workspace {
-  display: grid;
-  grid-template-columns: 380px 1fr;
-  gap: 16px;
-}
-
-.order-box, .positions-box, .history-section {
-  background: #161b22;
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.box-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid #21262d;
-  padding-bottom: 10px;
-}
-
-.box-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: #f0f6fc;
-}
-
-.box-tip {
-  font-size: 11px;
-  color: #8b949e;
-}
-
-.order-form {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.form-item {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.form-label {
-  font-size: 13px;
-  font-weight: 600;
+.chart-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cch-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f0f6fc;
+}
+
+.cch-tip {
+  font-size: 12px;
+  color: #8b949e;
+  margin-left: 10px;
+}
+
+.cch-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
   color: #c9d1d9;
 }
 
-.selected-stock-info {
+.leg-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  background: #0d1117;
-  border: 1px solid #21262d;
-  border-radius: 6px;
-  padding: 8px 12px;
-  font-size: 12px;
-}
-
-.selected-stock-info .cur-price {
-  color: #ef4444;
-  font-weight: 600;
-  font-family: monospace;
-}
-
-.mini-kline-btn {
-  background: #21262d;
-  color: #58a6ff;
-  border: 1px solid #30363d;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  cursor: pointer;
-}
-.mini-kline-btn:hover {
-  border-color: #58a6ff;
-}
-
-.tiers-buttons {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
   gap: 6px;
 }
 
-.tier-btn {
-  background: #0d1117;
-  border: 1px solid #30363d;
-  color: #8b949e;
-  border-radius: 6px;
-  padding: 7px 4px;
-  font-size: 11px;
-  cursor: pointer;
-  transition: all 0.2s;
-  text-align: center;
+.leg-color {
+  width: 12px;
+  height: 4px;
+  border-radius: 2px;
 }
 
-.tier-btn.active {
-  background: #1f6feb;
-  border-color: #58a6ff;
-  color: #ffffff;
-  font-weight: 600;
+.leg-color.strategy { background: #58a6ff; }
+.leg-color.benchmark { background: #eab308; }
+
+.equity-chart-box {
+  width: 100%;
+  height: 320px;
 }
 
-.tier-hint {
-  font-size: 12px;
-  color: #8b949e;
-  margin-top: 2px;
+/* 明细表格 */
+.details-split-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
 }
 
-.highlight-price {
-  color: #58a6ff;
-  font-size: 14px;
-  font-family: monospace;
+@media (max-width: 1024px) {
+  .details-split-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
-.shares-header {
+.detail-box {
+  background: #121824;
+  border: 1px solid #283347;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.detail-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.quick-ratios {
-  display: flex;
-  gap: 4px;
-}
-
-.ratio-btn {
-  background: #21262d;
-  border: 1px solid #30363d;
-  color: #8b949e;
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.ratio-btn:hover {
-  color: #58a6ff;
-  border-color: #58a6ff;
-}
-
-.terminal-input {
-  background: #0d1117;
-  border: 1px solid #30363d;
-  color: #f0f6fc;
-  border-radius: 6px;
-  padding: 8px 12px;
-  font-size: 13px;
-  font-family: monospace;
-  outline: none;
-}
-
-.terminal-input:focus {
-  border-color: #58a6ff;
-}
-
-.order-calc {
-  font-size: 12px;
-  color: #8b949e;
-  margin-top: 2px;
-}
-
-.order-calc b {
-  color: #f0f6fc;
-  font-family: monospace;
-}
-
-.action-buttons-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 6px;
-}
-
-.trade-btn {
-  padding: 12px;
-  border-radius: 6px;
-  border: none;
+.dh-title {
   font-size: 14px;
   font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s;
+  color: #f0f6fc;
+  margin: 0;
 }
 
-.trade-btn.buy {
-  background: #ef4444;
-  color: #ffffff;
+.dh-cash {
+  font-size: 12px;
+  color: #58a6ff;
+  font-weight: 600;
 }
 
-.trade-btn.buy:hover:not(:disabled) {
-  background: #dc2626;
+.dh-tip {
+  font-size: 11px;
+  color: #8b949e;
 }
 
-.trade-btn.sell {
-  background: #10b981;
-  color: #ffffff;
-}
-
-.trade-btn.sell:hover:not(:disabled) {
-  background: #059669;
-}
-
-.trade-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* 表格公用 */
-.table-wrapper {
-  overflow-x: auto;
+.detail-table-wrapper {
+  max-height: 300px;
+  overflow-y: auto;
 }
 
 .terminal-table {
@@ -1377,138 +1410,152 @@ onMounted(() => {
 }
 
 .terminal-table th {
-  background: #0d1117;
+  background: #0d121c;
   color: #8b949e;
   text-align: left;
   padding: 8px 10px;
-  border-bottom: 1px solid #21262d;
   font-weight: 600;
+  border-bottom: 1px solid #21262d;
+  position: sticky;
+  top: 0;
 }
 
 .terminal-table td {
-  padding: 9px 10px;
-  border-bottom: 1px solid #21262d;
+  padding: 7px 10px;
+  border-bottom: 1px solid #1c2738;
   color: #c9d1d9;
 }
 
-.code-col {
-  font-family: monospace;
-  color: #58a6ff;
-}
-
-.num-col {
-  font-family: monospace;
-}
-
-.text-up {
-  color: #ef4444;
-}
-
-.text-down {
-  color: #10b981;
-}
-
-.sub-pnl {
-  font-size: 10px;
+.empty-row {
+  text-align: center;
+  padding: 30px !important;
   color: #8b949e;
-}
-
-.quick-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.mini-btn {
-  border: none;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.mini-btn.kline {
-  background: #21262d;
-  color: #58a6ff;
-  border: 1px solid #30363d;
-}
-.mini-btn.kline:hover {
-  border-color: #58a6ff;
-}
-
-.mini-btn.sell {
-  background: rgba(16, 185, 129, 0.2);
-  color: #10b981;
-}
-
-.mini-btn.sell:hover {
-  background: rgba(16, 185, 129, 0.4);
-}
-
-.mini-btn.half {
-  background: rgba(234, 179, 8, 0.2);
-  color: #eab308;
-}
-
-.mini-btn.half:hover {
-  background: rgba(234, 179, 8, 0.4);
 }
 
 .side-badge {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: 4px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .side-badge.buy {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
+  background: rgba(255, 77, 79, 0.2);
+  color: #ff4d4f;
 }
 
 .side-badge.sell {
-  background: rgba(16, 185, 129, 0.2);
-  color: #10b981;
+  background: rgba(0, 230, 118, 0.2);
+  color: #00e676;
 }
 
-.type-tag {
+.reason-cell {
   font-size: 11px;
-  background: #0d1117;
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid #30363d;
   color: #8b949e;
 }
 
-.status-done {
-  color: #3fb950;
-  font-size: 11px;
-}
-
-.time-col {
+.time-cell {
   font-family: monospace;
   font-size: 11px;
-  color: #8b949e;
 }
 
-.empty-cell {
-  text-align: center;
-  padding: 30px;
+/* 对比弹窗 */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.compare-modal-card {
+  width: 900px;
+  max-width: 94vw;
+  height: 600px;
+  background: #0e1420;
+  border: 1px solid #2b3d5b;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.9);
+}
+
+.cm-header {
+  height: 50px;
+  background: #141c2c;
+  border-bottom: 1px solid #212d40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+}
+
+.cm-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f0f6fc;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  color: #8b949e;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.cm-body {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.compare-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
   color: #8b949e;
 }
 
 .spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid #30363d;
+  width: 30px;
+  height: 30px;
+  border: 3px solid #30363d;
   border-top-color: #58a6ff;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
-  display: inline-block;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.compare-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+}
+
+.leaderboard-box {
+  background: #121824;
+  border: 1px solid #212d40;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.compare-chart-canvas {
+  width: 100%;
+  height: 320px;
 }
 </style>

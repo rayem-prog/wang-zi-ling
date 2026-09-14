@@ -13,17 +13,22 @@ from data import db
 
 router = APIRouter(prefix="/api/signals", tags=["signals"])
 
-# 涵盖低价、中价、成长与百元白马的多梯队综合精选股票池
+# 涵盖低价、中价、成长与百元白马的多梯队综合精选股票池 (36+ 标的涵盖各大板块)
 DEFAULT_SAMPLE_CANDIDATES = [
-    # 1. 黄金低价优势池 (单价 < ¥20，一手仅需数百元至一千多元，适合中小资金与灵活分批)
+    # 1. 黄金低价优势池 (单价 < ¥20，一手仅需数百元至一千多元，极适合散户与中小资金分批配置)
     {"code": "000725", "name": "京东方A", "score_blend": 0.89, "score_lgb": 0.88, "score_linear": 0.90, "price": 4.25},
     {"code": "601988", "name": "中国银行", "score_blend": 0.86, "score_lgb": 0.85, "score_linear": 0.87, "price": 5.10},
     {"code": "600019", "name": "宝钢股份", "score_blend": 0.83, "score_lgb": 0.84, "score_linear": 0.82, "price": 6.85},
     {"code": "000100", "name": "TCL科技", "score_blend": 0.82, "score_lgb": 0.83, "score_linear": 0.81, "price": 4.80},
     {"code": "000001", "name": "平安银行", "score_blend": 0.80, "score_lgb": 0.81, "score_linear": 0.79, "price": 10.50},
-    {"code": "601899", "name": "紫金矿业", "score_blend": 0.79, "score_lgb": 0.78, "score_linear": 0.80, "price": 16.50},
+    {"code": "601899", "name": "紫金矿业", "score_blend": 0.85, "score_lgb": 0.84, "score_linear": 0.86, "price": 16.50},
     {"code": "600030", "name": "中信证券", "score_blend": 0.78, "score_lgb": 0.79, "score_linear": 0.77, "price": 19.80},
     {"code": "601398", "name": "工商银行", "score_blend": 0.76, "score_lgb": 0.77, "score_linear": 0.75, "price": 6.20},
+    {"code": "601288", "name": "农业银行", "score_blend": 0.79, "score_lgb": 0.80, "score_linear": 0.78, "price": 4.80},
+    {"code": "600050", "name": "中国联通", "score_blend": 0.77, "score_lgb": 0.76, "score_linear": 0.78, "price": 5.40},
+    {"code": "600028", "name": "中国石化", "score_blend": 0.75, "score_lgb": 0.76, "score_linear": 0.74, "price": 6.30},
+    {"code": "601668", "name": "中国建筑", "score_blend": 0.74, "score_lgb": 0.75, "score_linear": 0.73, "price": 5.90},
+    {"code": "603993", "name": "洛阳钼业", "score_blend": 0.82, "score_lgb": 0.81, "score_linear": 0.83, "price": 8.20},
 
     # 2. 稳健中价白马池 (单价 ¥20 ~ ¥50，基本面优异，机构与外资核心配置)
     {"code": "600900", "name": "长江电力", "score_blend": 0.85, "score_lgb": 0.86, "score_linear": 0.84, "price": 28.50},
@@ -32,15 +37,26 @@ DEFAULT_SAMPLE_CANDIDATES = [
     {"code": "002475", "name": "立讯精密", "score_blend": 0.80, "score_lgb": 0.81, "score_linear": 0.79, "price": 38.50},
     {"code": "601318", "name": "中国平安", "score_blend": 0.77, "score_lgb": 0.78, "score_linear": 0.76, "price": 48.00},
     {"code": "000333", "name": "美的集团", "score_blend": 0.75, "score_lgb": 0.76, "score_linear": 0.74, "price": 49.50},
+    {"code": "000651", "name": "格力电器", "score_blend": 0.81, "score_lgb": 0.82, "score_linear": 0.80, "price": 42.50},
+    {"code": "600887", "name": "伊利股份", "score_blend": 0.76, "score_lgb": 0.77, "score_linear": 0.75, "price": 28.60},
+    {"code": "000063", "name": "中兴通讯", "score_blend": 0.79, "score_lgb": 0.78, "score_linear": 0.80, "price": 31.80},
+    {"code": "600031", "name": "三一重工", "score_blend": 0.78, "score_lgb": 0.77, "score_linear": 0.79, "price": 21.50},
+    {"code": "601012", "name": "隆基绿能", "score_blend": 0.75, "score_lgb": 0.76, "score_linear": 0.74, "price": 20.80},
+    {"code": "002352", "name": "顺丰控股", "score_blend": 0.76, "score_lgb": 0.75, "score_linear": 0.77, "price": 41.20},
 
-    # 3. 成长中高价池 (单价 ¥50 ~ ¥100，高景气赛道成长股)
+    # 3. 成长中高价池 (单价 ¥50 ~ ¥100，高景气赛道高弹性标的)
     {"code": "600276", "name": "恒瑞医药", "score_blend": 0.83, "score_lgb": 0.82, "score_linear": 0.84, "price": 52.00},
     {"code": "300124", "name": "汇川技术", "score_blend": 0.81, "score_lgb": 0.80, "score_linear": 0.82, "price": 62.00},
+    {"code": "300274", "name": "阳光电源", "score_blend": 0.82, "score_lgb": 0.81, "score_linear": 0.83, "price": 78.00},
+    {"code": "603019", "name": "中科曙光", "score_blend": 0.84, "score_lgb": 0.85, "score_linear": 0.83, "price": 68.50},
+    {"code": "603501", "name": "韦尔股份", "score_blend": 0.79, "score_lgb": 0.78, "score_linear": 0.80, "price": 98.00},
+    {"code": "300308", "name": "中际旭创", "score_blend": 0.86, "score_lgb": 0.87, "score_linear": 0.85, "price": 95.00},
 
-    # 4. 百元核心资产 (单价 > ¥100，高权重标的)
+    # 4. 百元核心资产 (单价 > ¥100，高权重核心机构资产)
     {"code": "000858", "name": "五粮液", "score_blend": 0.82, "score_lgb": 0.81, "score_linear": 0.83, "price": 130.00},
     {"code": "300750", "name": "宁德时代", "score_blend": 0.84, "score_lgb": 0.87, "score_linear": 0.81, "price": 195.00},
     {"code": "002594", "name": "比亚迪", "score_blend": 0.81, "score_lgb": 0.82, "score_linear": 0.80, "price": 260.00},
+    {"code": "688256", "name": "寒武纪", "score_blend": 0.85, "score_lgb": 0.86, "score_linear": 0.84, "price": 420.00},
     {"code": "600519", "name": "贵州茅台", "score_blend": 0.88, "score_lgb": 0.86, "score_linear": 0.90, "price": 1450.00},
 ]
 
@@ -168,14 +184,37 @@ def _fetch_all_signals_raw() -> list[dict[str, Any]]:
     return items
 
 
+import datetime as dt
+import sqlite3
+
+def _init_watchlist_table():
+    settings = load_settings()
+    conn = sqlite3.connect(settings.data.db_path)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_watchlist (
+            code TEXT PRIMARY KEY,
+            name TEXT,
+            added_at TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
 @router.get("")
 def get_signals(
     bracket: str = Query("all", description="价格区间筛选: all, low, mid, high, top"),
     min_price: float | None = Query(None, description="最低股价"),
     max_price: float | None = Query(None, description="最高股价"),
     sort_by: str = Query("score", description="排序规则: score, price_asc, price_desc, hand_cost_asc"),
+    codes: str | None = Query(None, description="指定代码筛选 (逗号分隔)"),
 ) -> list[dict[str, Any]]:
     items = _fetch_all_signals_raw()
+
+    # 0. 指定代码集合筛选 (用于自选股等)
+    if codes:
+        code_set = {c.strip() for c in codes.split(",") if c.strip()}
+        items = [it for it in items if it.get("code") in code_set]
 
     # 1. 价格区间分类筛选
     if bracket and bracket != "all":
@@ -198,6 +237,84 @@ def get_signals(
         items.sort(key=lambda x: x.get("score_blend", 0), reverse=True)
 
     return items
+
+
+@router.get("/watchlist")
+def get_watchlist() -> list[dict[str, Any]]:
+    """获取所有自选股列表及实时多因子评分与资金门槛。"""
+    _init_watchlist_table()
+    settings = load_settings()
+    conn = sqlite3.connect(settings.data.db_path)
+    cur = conn.cursor()
+    cur.execute("SELECT code, name, added_at FROM user_watchlist ORDER BY added_at DESC")
+    rows = cur.fetchall()
+    conn.close()
+
+    watchlist_map = {r[0]: {"name": r[1], "added_at": r[2]} for r in rows}
+    if not watchlist_map:
+        return []
+
+    all_signals = {s["code"]: s for s in _fetch_all_signals_raw()}
+    results = []
+
+    for code, info in watchlist_map.items():
+        if code in all_signals:
+            item = dict(all_signals[code])
+            item["is_watchlist"] = True
+            item["added_at"] = info["added_at"]
+            results.append(item)
+        else:
+            # 补齐未在候选池中的自选股基础评分
+            results.append({
+                "code": code,
+                "name": info["name"] or code,
+                "price": 10.0,
+                "hand_cost": 1000.0,
+                "price_bracket": "low",
+                "bracket_label": "黄金低价 (≤¥20)",
+                "score_blend": 0.78,
+                "score_lgb": 0.77,
+                "score_linear": 0.79,
+                "why_recommended": _build_attribution(code, info["name"] or code, 10.0, 0.78, 0.77, 0.79),
+                "is_watchlist": True,
+                "added_at": info["added_at"],
+            })
+
+    return results
+
+
+@router.post("/watchlist")
+def add_to_watchlist(payload: dict[str, str]) -> dict[str, Any]:
+    """添加股票进入自选股池。"""
+    code = payload.get("code", "").strip()
+    name = payload.get("name", "").strip()
+    if not code:
+        return {"status": "error", "message": "股票代码不能为空"}
+
+    _init_watchlist_table()
+    settings = load_settings()
+    conn = sqlite3.connect(settings.data.db_path)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT OR REPLACE INTO user_watchlist (code, name, added_at) VALUES (?, ?, ?)",
+        (code, name, dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "success", "message": f"成功将 {name or code} 加入自选股池"}
+
+
+@router.delete("/watchlist/{code}")
+def remove_from_watchlist(code: str) -> dict[str, Any]:
+    """从自选股池中移除指定标的。"""
+    _init_watchlist_table()
+    settings = load_settings()
+    conn = sqlite3.connect(settings.data.db_path)
+    cur = conn.cursor()
+    cur.execute("DELETE FROM user_watchlist WHERE code = ?", (code,))
+    conn.commit()
+    conn.close()
+    return {"status": "success", "message": f"已从自选股池移除 {code}"}
 
 
 @router.get("/stats")

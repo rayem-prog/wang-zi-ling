@@ -40,9 +40,17 @@
           🌟 综合选股推荐
           <span class="mode-desc">全市场多因子胜率综合排行</span>
         </button>
+        <button
+          class="mode-tab-btn"
+          :class="{ active: viewMode === 'watchlist' }"
+          @click="switchViewMode('watchlist')"
+        >
+          ⭐ 我的自选股 ({{ watchlistCodes.length }})
+          <span class="mode-desc">自选关注标的与多因子跟踪</span>
+        </button>
       </div>
 
-      <div class="sort-controls" v-if="viewMode === 'comprehensive'">
+      <div class="sort-controls" v-if="viewMode === 'comprehensive' || viewMode === 'watchlist'">
         <label class="sort-lbl">排序方式：</label>
         <select v-model="sortBy" class="terminal-select" @change="loadSignals">
           <option value="score">综合胜率得分降序 (默认)</option>
@@ -50,6 +58,29 @@
           <option value="price_asc">股价从低到高</option>
           <option value="price_desc">股价从高到低</option>
         </select>
+      </div>
+    </div>
+
+    <!-- 模式三专属：自选股管理与快速添加栏 -->
+    <div class="watchlist-toolbar-section" v-if="viewMode === 'watchlist'">
+      <div class="watchlist-info-bar">
+        <div class="wl-left">
+          <span class="wl-title">⭐ 我的自选股监控池</span>
+          <span class="wl-count">已关注 <b>{{ watchlistCodes.length }}</b> 只标的</span>
+          <span class="wl-tip">点击表格中的 ☆ / ⭐ 可快速添加或移除自选</span>
+        </div>
+        <div class="wl-add-box">
+          <input
+            v-model="quickAddInput"
+            type="text"
+            placeholder="输入代码/名称(如 000001 / payh)..."
+            class="terminal-input wl-input"
+            @keyup.enter="handleQuickAddWatchlist"
+          />
+          <button class="action-btn wl-btn" @click="handleQuickAddWatchlist">
+            ➕ 加自选
+          </button>
+        </div>
       </div>
     </div>
 
@@ -260,6 +291,14 @@
             <!-- 操作列 -->
             <td>
               <div class="actions-group">
+                <button
+                  class="action-mini star-btn"
+                  :class="{ favorited: isFavorited(item.code) }"
+                  @click.stop="toggleWatchlist(item)"
+                  :title="isFavorited(item.code) ? '点击移出自选' : '点击加入自选'"
+                >
+                  {{ isFavorited(item.code) ? '⭐ 已自选' : '☆ 加自选' }}
+                </button>
                 <button class="action-mini why" @click.stop="openAttribution(item)" title="查看多因子深度归因">
                   🔍 为什么推荐
                 </button>
@@ -300,13 +339,17 @@ import StockAttributionModal from '../components/StockAttributionModal.vue'
 
 const emit = defineEmits(['switch-tab'])
 
-const viewMode = ref('bracket') // 'bracket' (价格区间推荐) 或 'comprehensive' (综合推荐)
+const viewMode = ref('bracket') // 'bracket' | 'comprehensive' | 'watchlist'
 const selectedBracket = ref('all') // 'all', 'low', 'mid', 'high', 'top'
 const sortBy = ref('score')
 const customMinPrice = ref(null)
 const customMaxPrice = ref(null)
 
 const signals = ref([])
+const watchlist = ref([])
+const watchlistCodes = computed(() => watchlist.value.map(s => s.code))
+const quickAddInput = ref('')
+
 const stats = ref({ total_count: 0, brackets: {} })
 const loading = ref(false)
 const searchQuery = ref('')
@@ -314,12 +357,66 @@ const klineVisible = ref(false)
 const attributionVisible = ref(false)
 const selectedStock = ref(null)
 
+function isFavorited(code) {
+  return watchlistCodes.value.includes(code)
+}
+
+async function toggleWatchlist(stock) {
+  const code = stock.code
+  if (isFavorited(code)) {
+    try {
+      await api.removeFromWatchlist(code)
+      watchlist.value = watchlist.value.filter(s => s.code !== code)
+    } catch (err) {
+      console.error('Failed to remove from watchlist:', err)
+    }
+  } else {
+    try {
+      await api.addToWatchlist({ code: stock.code, name: stock.name })
+      watchlist.value.unshift({ ...stock, is_watchlist: true })
+    } catch (err) {
+      console.error('Failed to add to watchlist:', err)
+    }
+  }
+}
+
+async function handleQuickAddWatchlist() {
+  const q = quickAddInput.value.trim()
+  if (!q) return
+  try {
+    const searchRes = await api.searchStocks(q)
+    if (searchRes && searchRes.length > 0) {
+      const top = searchRes[0]
+      await api.addToWatchlist({ code: top.code, name: top.name })
+      quickAddInput.value = ''
+      await loadWatchlist()
+    } else {
+      await api.addToWatchlist({ code: q, name: q })
+      quickAddInput.value = ''
+      await loadWatchlist()
+    }
+  } catch (err) {
+    console.error('Failed to quick add watchlist:', err)
+  }
+}
+
+async function loadWatchlist() {
+  try {
+    const res = await api.getWatchlist()
+    if (res) watchlist.value = res
+  } catch (err) {
+    console.error('Failed to load watchlist:', err)
+  }
+}
+
 function switchViewMode(mode) {
   viewMode.value = mode
   if (mode === 'comprehensive') {
     selectedBracket.value = 'all'
     customMinPrice.value = null
     customMaxPrice.value = null
+  } else if (mode === 'watchlist') {
+    loadWatchlist()
   }
 }
 
@@ -391,19 +488,25 @@ async function loadSignals() {
 
 // 动态筛选计算
 const displaySignals = computed(() => {
-  let list = signals.value || []
+  let list = []
 
-  // 1. 价格区间分类筛选
-  if (viewMode.value === 'bracket') {
-    if (selectedBracket.value !== 'all' && selectedBracket.value !== 'custom') {
-      list = list.filter(s => s.price_bracket === selectedBracket.value)
-    }
-    // 2. 自定义区间
-    if (customMinPrice.value !== null && customMinPrice.value !== '') {
-      list = list.filter(s => s.price >= customMinPrice.value)
-    }
-    if (customMaxPrice.value !== null && customMaxPrice.value !== '') {
-      list = list.filter(s => s.price <= customMaxPrice.value)
+  if (viewMode.value === 'watchlist') {
+    list = [...watchlist.value]
+  } else {
+    list = [...(signals.value || [])]
+
+    // 1. 价格区间分类筛选
+    if (viewMode.value === 'bracket') {
+      if (selectedBracket.value !== 'all' && selectedBracket.value !== 'custom') {
+        list = list.filter(s => s.price_bracket === selectedBracket.value)
+      }
+      // 2. 自定义区间
+      if (customMinPrice.value !== null && customMinPrice.value !== '') {
+        list = list.filter(s => s.price >= customMinPrice.value)
+      }
+      if (customMaxPrice.value !== null && customMaxPrice.value !== '') {
+        list = list.filter(s => s.price <= customMaxPrice.value)
+      }
     }
   }
 
@@ -429,6 +532,7 @@ const cheapestSignal = computed(() => {
 
 onMounted(() => {
   loadSignals()
+  loadWatchlist()
 })
 </script>
 
@@ -949,6 +1053,23 @@ onMounted(() => {
   transition: all 0.2s;
 }
 
+.action-mini.star-btn {
+  background: #21262d;
+  color: #8b949e;
+  border: 1px solid #30363d;
+}
+
+.action-mini.star-btn.favorited {
+  background: rgba(234, 179, 8, 0.15);
+  color: #eab308;
+  border-color: rgba(234, 179, 8, 0.5);
+}
+
+.action-mini.star-btn:hover {
+  border-color: #eab308;
+  color: #eab308;
+}
+
 .action-mini.why {
   background: #21262d;
   color: #58a6ff;
@@ -977,6 +1098,67 @@ onMounted(() => {
 
 .action-mini.paper:hover {
   background: rgba(35, 134, 54, 0.4);
+}
+
+/* 自选股管理条 */
+.watchlist-toolbar-section {
+  background: #121824;
+  border: 1px solid #283347;
+  border-radius: 8px;
+  padding: 12px 18px;
+}
+
+.watchlist-info-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.wl-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wl-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #eab308;
+}
+
+.wl-count {
+  font-size: 13px;
+  color: #c9d1d9;
+}
+
+.wl-count b {
+  color: #58a6ff;
+}
+
+.wl-tip {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.wl-add-box {
+  display: flex;
+  gap: 8px;
+}
+
+.wl-input {
+  width: 220px;
+}
+
+.wl-btn {
+  background: #238636;
+  border-color: #2ea043;
+  color: #ffffff;
+}
+
+.wl-btn:hover {
+  background: #2ea043;
 }
 
 .empty-cell {

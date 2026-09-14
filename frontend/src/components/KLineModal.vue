@@ -53,7 +53,7 @@
           <span class="spinner"></span>
           <span>正在加载并计算高清晰度 K 线行情...</span>
         </div>
-        <div v-show="!loading" ref="chartRef" class="chart-canvas"></div>
+        <div ref="chartRef" class="chart-canvas"></div>
       </div>
     </div>
   </div>
@@ -107,10 +107,14 @@ async function loadData() {
       ? await api.getDailyKline(props.stock.code)
       : await api.getMinuteKline(props.stock.code)
 
+    loading.value = false
+    await nextTick()
     renderChart(res)
+    setTimeout(() => chartInstance?.resize(), 50)
+    setTimeout(() => chartInstance?.resize(), 150)
+    setTimeout(() => chartInstance?.resize(), 300)
   } catch (err) {
     console.error('Failed to load kline:', err)
-  } finally {
     loading.value = false
   }
 }
@@ -395,13 +399,28 @@ watch(
   }
 )
 
+let resizeObserver = null
+
 onMounted(() => {
   window.addEventListener('resize', handleResize)
+  if (chartRef.value) {
+    resizeObserver = new ResizeObserver(() => {
+      chartInstance?.resize()
+    })
+    resizeObserver.observe(chartRef.value)
+  }
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
-  if (chartInstance) chartInstance.dispose()
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
+  if (chartInstance) {
+    chartInstance.dispose()
+    chartInstance = null
+  }
 })
 </script>
 
@@ -589,8 +608,10 @@ onUnmounted(() => {
 
 .modal-body {
   flex: 1;
+  min-height: 520px;
   position: relative;
   background: #090d13;
+  width: 100%;
 }
 
 .chart-loading {
@@ -603,6 +624,9 @@ onUnmounted(() => {
   gap: 12px;
   color: #8b949e;
   font-size: 14px;
+  background: rgba(9, 13, 19, 0.88);
+  backdrop-filter: blur(4px);
+  z-index: 10;
 }
 
 .spinner {
@@ -621,5 +645,6 @@ onUnmounted(() => {
 .chart-canvas {
   width: 100%;
   height: 100%;
+  min-height: 520px;
 }
 </style>
