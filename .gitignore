@@ -1,0 +1,30 @@
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# Python Cache & Testing
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Node & Frontend Dependencies (dist is kept so users don't need Node.js)
+frontend/node_modules/
+frontend/.vite/
+
+# User Data & Transaction Logs (ensures git pull will never overwrite user holdings or balances)
+data/*.db
+artifacts/*.db
+artifacts/*.csv
+artifacts/*.json
+artifacts/recap_*.md
+!artifacts/.gitkeep
+!data/.gitkeep
+
+# System & IDE Configs
+.DS_Store
+.idea/
+.vscode/
+*.log
+

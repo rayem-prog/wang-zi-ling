@@ -1,0 +1,48 @@
+# StockPilot M4 事件日历
+# 规则：重大事件前 2 个交易日起至事件当日，仓位上限降一档（80%->60%, 60%->30%, 30% 不变）
+
+events:
+  - name: "股指期货交割日（IF/IC/IM/IH）"
+    type: "recurring_monthly_third_friday"
+    desc: "每月第三个周五，日内波动加剧"
+
+  - name: "年报及一季报披露截止期"
+    type: "date_range"
+    start: "04-20"
+    end: "04-30"
+    desc: "业绩爆雷与避险情绪集中期"
+
+  - name: "半年报披露截止期"
+    type: "date_range"
+    start: "08-20"
+    end: "08-31"
+    desc: "中报业绩密集披露期"
+
+  - name: "三季报披露截止期"
+    type: "date_range"
+    start: "10-20"
+    end: "10-31"
+    desc: "三季报业绩密集披露期"
+
+  - name: "全国两会"
+    type: "date_range"
+    start: "03-03"
+    end: "03-12"
+    desc: "政策导向与市场预期重塑期"
+
+  - name: "中央经济工作会议"
+    type: "date_range"
+    start: "12-10"
+    end: "12-16"
+    desc: "年度宏观经济政策定调"
+
+custom_dates:
+  # 格式: YYYY-MM-DD
+  - date: "2026-09-18"
+    name: "9月股指期货交割日"
+  - date: "2026-10-16"
+    name: "10月股指期货交割日"
+  - date: "2026-11-20"
+    name: "11月股指期货交割日"
+  - date: "2026-12-18"
+    name: "12月股指期货交割日"
