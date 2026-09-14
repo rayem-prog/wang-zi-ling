@@ -148,6 +148,7 @@ onUnmounted(() => {
 .app-main {
   display: flex;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -160,6 +161,8 @@ onUnmounted(() => {
   justify-content: space-between;
   padding: 14px 10px;
   user-select: none;
+  flex-shrink: 0;
+  overflow-y: auto;
 }
 
 .nav-menu {
@@ -242,7 +245,29 @@ onUnmounted(() => {
 
 .content-area {
   flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   background: #0d1117;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* 全局自定义滚动条 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #0d1117;
+}
+::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border: 2px solid #0d1117;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #388bfd;
 }
 </style>

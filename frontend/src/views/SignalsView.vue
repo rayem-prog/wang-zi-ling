@@ -223,8 +223,50 @@
       </div>
     </div>
 
-    <!-- 信号数据列表表格 -->
-    <div class="table-wrapper">
+    <!-- 推荐标的列表控制栏 -->
+    <div class="table-header-bar">
+      <div class="th-left">
+        <span class="th-title">📋 推荐标的列表</span>
+        <span class="th-count">
+          当前展示 <b>{{ paginatedSignals.length }}</b> / 共 <b>{{ displaySignals.length }}</b> 只
+        </span>
+        <span class="th-drag-hint">🖐️ 支持鼠标按住表格任意空白处直接上下拖拽滑动</span>
+      </div>
+      <div class="th-right">
+        <span class="page-size-lbl">单页展示：</span>
+        <div class="page-size-btns">
+          <button
+            class="ps-btn"
+            :class="{ active: pageSize === 10 }"
+            @click="setPageSize(10)"
+          >
+            10只
+          </button>
+          <button
+            class="ps-btn"
+            :class="{ active: pageSize === 20 }"
+            @click="setPageSize(20)"
+          >
+            20只
+          </button>
+          <button
+            class="ps-btn"
+            :class="{ active: pageSize >= 999 }"
+            @click="setPageSize(999)"
+          >
+            全部36只
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 信号数据列表表格 (支持拖拽滚动) -->
+    <div
+      ref="tableWrapperRef"
+      class="table-wrapper"
+      :class="{ 'is-dragging': isDragging }"
+      @mousedown="onTableMouseDown"
+    >
       <table class="terminal-table">
         <thead>
           <tr>
@@ -247,13 +289,13 @@
             </td>
           </tr>
           <tr
-            v-for="(item, idx) in displaySignals"
+            v-for="(item, idx) in paginatedSignals"
             :key="item.code"
             class="clickable-row"
-            @click="openAttribution(item)"
+            @click="onRowClick(item)"
           >
             <td class="rank-col">
-              <span class="rank-badge" :class="'rank-' + (idx + 1)">{{ idx + 1 }}</span>
+              <span class="rank-badge" :class="'rank-' + getGlobalRank(idx)">{{ getGlobalRank(idx) }}</span>
             </td>
             <td class="code-col"><b>{{ item.code }}</b></td>
             <td class="name-col"><b>{{ item.name || '--' }}</b></td>
@@ -315,6 +357,44 @@
       </table>
     </div>
 
+    <!-- 底部翻页 / 全量展示与回顶工具栏 -->
+    <div class="table-footer-bar">
+      <div class="tf-left">
+        <span class="tf-stat">
+          第 <b>{{ currentPage }}</b> / <b>{{ totalPages }}</b> 页 · 共 <b>{{ displaySignals.length }}</b> 只精选标的
+        </span>
+      </div>
+      <div class="tf-right" v-if="totalPages > 1">
+        <button
+          class="page-nav-btn"
+          :disabled="currentPage <= 1"
+          @click="changePage(currentPage - 1)"
+        >
+          ◀ 上一页
+        </button>
+        <button
+          v-for="p in totalPages"
+          :key="p"
+          class="page-nav-btn page-num"
+          :class="{ active: currentPage === p }"
+          @click="changePage(p)"
+        >
+          {{ p }}
+        </button>
+        <button
+          class="page-nav-btn"
+          :disabled="currentPage >= totalPages"
+          @click="changePage(currentPage + 1)"
+        >
+          下一页 ▶
+        </button>
+      </div>
+      <div class="tf-right" v-else>
+        <span class="all-shown-tip">✅ 当前已全量展示全部 {{ displaySignals.length }} 只推荐标的</span>
+        <button class="scroll-top-btn" @click="scrollToTop">⬆ 回到顶部</button>
+      </div>
+    </div>
+
     <!-- 为什么推荐·多维归因弹窗 -->
     <StockAttributionModal
       v-model:visible="attributionVisible"
@@ -332,7 +412,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { api } from '../api'
 import KLineModal from '../components/KLineModal.vue'
 import StockAttributionModal from '../components/StockAttributionModal.vue'
@@ -530,6 +610,116 @@ const cheapestSignal = computed(() => {
   return [...displaySignals.value].sort((a, b) => (a.price || 0) - (b.price || 0))[0]
 })
 
+// 分页与全量展示控制 (默认全部36只展示)
+const pageSize = ref(36)
+const currentPage = ref(1)
+
+const totalPages = computed(() => {
+  if (pageSize.value >= displaySignals.value.length) return 1
+  return Math.ceil(displaySignals.value.length / pageSize.value) || 1
+})
+
+const paginatedSignals = computed(() => {
+  if (pageSize.value >= displaySignals.value.length) {
+    return displaySignals.value
+  }
+  const start = (currentPage.value - 1) * pageSize.value
+  return displaySignals.value.slice(start, start + pageSize.value)
+})
+
+function setPageSize(size) {
+  pageSize.value = size
+  currentPage.value = 1
+}
+
+function changePage(p) {
+  if (p < 1 || p > totalPages.value) return
+  currentPage.value = p
+  if (tableWrapperRef.value) {
+    tableWrapperRef.value.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+}
+
+function getGlobalRank(idx) {
+  if (pageSize.value >= displaySignals.value.length) {
+    return idx + 1
+  }
+  return (currentPage.value - 1) * pageSize.value + idx + 1
+}
+
+function scrollToTop() {
+  const container = document.querySelector('.content-area') || window
+  if (container.scrollTo) {
+    container.scrollTo({ top: 0, behavior: 'smooth' })
+  } else {
+    container.scrollTop = 0
+  }
+}
+
+// 筛选条件变化时自动重置为第1页
+watch([viewMode, selectedBracket, customMinPrice, customMaxPrice, searchQuery], () => {
+  currentPage.value = 1
+})
+
+// 鼠标抓手拖拽滑动 (Drag-to-Scroll)
+const tableWrapperRef = ref(null)
+const isDragging = ref(false)
+let startY = 0
+let startScrollTop = 0
+let hasMoved = false
+
+function onTableMouseDown(e) {
+  if (e.target.closest('button') || e.target.closest('input') || e.target.closest('select') || e.target.closest('a')) {
+    return
+  }
+  if (e.button !== 0) return
+
+  isDragging.value = true
+  hasMoved = false
+  startY = e.clientY
+
+  const scroller = document.querySelector('.content-area') || window
+  startScrollTop = scroller.scrollTop !== undefined ? scroller.scrollTop : window.scrollY
+
+  window.addEventListener('mousemove', onTableMouseMove)
+  window.addEventListener('mouseup', onWindowMouseUp)
+}
+
+function onTableMouseMove(e) {
+  if (!isDragging.value) return
+  const deltaY = e.clientY - startY
+  if (Math.abs(deltaY) > 4) {
+    hasMoved = true
+  }
+  const scroller = document.querySelector('.content-area') || window
+  if (scroller.scrollTop !== undefined) {
+    scroller.scrollTop = startScrollTop - deltaY
+  } else {
+    window.scrollTo(0, startScrollTop - deltaY)
+  }
+}
+
+function onWindowMouseUp() {
+  if (isDragging.value) {
+    isDragging.value = false
+    setTimeout(() => {
+      hasMoved = false
+    }, 50)
+  }
+  window.removeEventListener('mousemove', onTableMouseMove)
+  window.removeEventListener('mouseup', onWindowMouseUp)
+}
+
+function onRowClick(item) {
+  if (hasMoved) return
+  openAttribution(item)
+}
+
+onUnmounted(() => {
+  window.removeEventListener('mousemove', onTableMouseMove)
+  window.removeEventListener('mouseup', onWindowMouseUp)
+})
+
 onMounted(() => {
   loadSignals()
   loadWatchlist()
@@ -540,10 +730,9 @@ onMounted(() => {
 .view-container {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  padding: 16px 20px;
+  min-height: 100%;
+  padding: 16px 20px 48px 20px;
   gap: 16px;
-  overflow-y: auto;
 }
 
 .view-toolbar {
@@ -863,12 +1052,103 @@ onMounted(() => {
   color: #00e676;
 }
 
-/* 表格 */
-.table-wrapper {
+/* 推荐表格控制顶栏 */
+.table-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  background: #121824;
+  border: 1px solid #30363d;
+  border-radius: 8px 8px 0 0;
+  padding: 10px 16px;
+  border-bottom: none;
+}
+
+.th-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.th-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f0f6fc;
+}
+
+.th-count {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.th-count b {
+  color: #58a6ff;
+}
+
+.th-drag-hint {
+  font-size: 11px;
+  color: #eab308;
+  background: rgba(234, 179, 8, 0.1);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.th-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-size-lbl {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.page-size-btns {
+  display: flex;
+  gap: 4px;
+}
+
+.ps-btn {
   background: #161b22;
   border: 1px solid #30363d;
-  border-radius: 8px;
-  overflow: hidden;
+  color: #8b949e;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ps-btn.active {
+  background: #1f6feb;
+  color: #ffffff;
+  border-color: #388bfd;
+  font-weight: 600;
+}
+
+.ps-btn:hover:not(.active) {
+  color: #f0f6fc;
+  border-color: #58a6ff;
+}
+
+/* 表格本体与抓手拖拽 */
+.table-wrapper {
+  background: #161b22;
+  border-left: 1px solid #30363d;
+  border-right: 1px solid #30363d;
+  overflow-x: auto;
+  cursor: grab;
+  position: relative;
+}
+
+.table-wrapper.is-dragging {
+  cursor: grabbing;
+  user-select: none;
 }
 
 .terminal-table {
@@ -879,17 +1159,106 @@ onMounted(() => {
 }
 
 .terminal-table th {
-  background: #11161d;
+  background: #121822;
   color: #8b949e;
-  padding: 10px 12px;
+  padding: 11px 12px;
   font-weight: 600;
   border-bottom: 1px solid #30363d;
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }
 
 .terminal-table td {
   padding: 10px 12px;
   border-bottom: 1px solid #21262d;
   color: #c9d1d9;
+}
+
+/* 推荐表格底栏与翻页 */
+.table-footer-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: #121824;
+  border: 1px solid #30363d;
+  border-radius: 0 0 8px 8px;
+  padding: 10px 16px;
+  border-top: 1px solid #21262d;
+}
+
+.tf-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tf-stat {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.tf-stat b {
+  color: #58a6ff;
+}
+
+.tf-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.page-nav-btn {
+  background: #161b22;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.page-nav-btn:hover:not(:disabled) {
+  border-color: #58a6ff;
+  color: #58a6ff;
+}
+
+.page-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-nav-btn.page-num.active {
+  background: #1f6feb;
+  color: #ffffff;
+  border-color: #388bfd;
+  font-weight: 700;
+}
+
+.all-shown-tip {
+  font-size: 12px;
+  color: #3fb950;
+  font-weight: 500;
+}
+
+.scroll-top-btn {
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 8px;
+  transition: all 0.15s;
+}
+
+.scroll-top-btn:hover {
+  color: #58a6ff;
+  border-color: #58a6ff;
 }
 
 .clickable-row {
