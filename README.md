@@ -1,49 +1,54 @@
-# StockPilot — 双引擎 A 股投资决策辅助系统
+# StockPilot v2 — 专业 A 股量化交易与多因子决策辅助系统
 
-本地运行的投资辅助工具：LightGBM 多因子（引擎 A）+ 纯规则（引擎 B）双线并行，
-动态加权后给出每日建议清单，并结合你的真实资金与持仓输出仓位/加减仓建议。
+本地私有化部署的专业级量化投资与交易决策终端：
+- **双引擎量化模型**：LightGBM 机器学习（引擎 A）+ 线性多因子（引擎 B）动态权衡；
+- **全新双模式选股**：**🎯 价格区间选股推荐**（按一手资金门槛分档，对中小资金极度友好）+ **🌟 综合选股推荐**；
+- **AI 自主模拟推演**：根据账户资金与风控偏好，AI 自动测算最优挂单价格区间 [低, 高]、阶梯低吸挂单点与推荐股数，支持一键自主建仓；
+- **专业级高清 K 线**：日 K 与 1 分钟分时蜡烛图、均线图例、高低点气泡、止盈/止损标记、实时十字光标 OHLCV 看板；
+- **全链路风控与盯盘**：盘中异动雷达、日内硬止损/达标止盈实时告警、宏观温度计、次日操作清单导出。
 
-## 快速开始（Mac）
+---
 
-1. 安装依赖：
+## 🚀 极速上手
 
-   `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
+### 🍎 Mac 用户（开箱即用）
+1. **启动程序**：双击项目根目录下的 **`启动终端.command`**（或在终端运行 `./run.sh`）；
+2. **后续一键更新**：双击 **`更新并启动.command`**（或在终端运行 `./update.sh`），将自动安全拉取最新代码并拉起终端。
 
-   macOS 上若 `import lightgbm` 报 `libomp.dylib` 找不到，先执行：
+### 🪟 Windows 用户
+1. **启动程序**：双击项目根目录下的 **`run.bat`**；
+2. **后续一键更新**：双击 **`update.bat`**，将自动拉取最新代码并启动。
 
-   `export DYLD_LIBRARY_PATH="$PWD/.venv/opt/libomp/lib"`
+> 💡 **零前端依赖说明**：系统已内置编译好的全套前端 Web 资源（`frontend/dist`），使用方电脑**无需安装 Node.js 或 npm**，只要有 Python 3.9+ 即可秒级拉起。
+> 💡 **个人数据安全隔离**：模拟账户账本（`artifacts/paper.db`）及个人自定义配置受 `.gitignore` 严格保护，**后续拉取代码更新绝对不会覆盖您的持仓与资产数据**。
 
-2. 更新数据（首次约 300 只股票，需几分钟）：
+---
 
-   `python3 scripts/update_data.py`
+## 🛠️ 开发者命令行指引
 
-   数据源自动降级：优先东方财富（AkShare），网络不可达时自动改用腾讯/新浪行情，
-   无需手工切换。如你所在网络东财可达且希望强制使用东财数据，
-   可设环境变量 `export STOCKPILOT_DATA_SOURCE=em`（默认 `tx`：腾讯/新浪优先，更稳定）。
+### 1. 初始化虚拟环境与安装依赖
+```bash
+python3 -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-3. 跑回测看双引擎对比（输出到 artifacts/equity_*.csv 与 backtest_stats.json）：
+### 2. 启动服务
+```bash
+./run.sh
+# 或指定端口与网络监听（如允许局域网访问）：
+./run.sh --host 0.0.0.0 --port 8888
+```
+服务启动后，浏览器将自动打开：`http://localhost:8888`。
 
-   `python3 scripts/run_backtest.py`
+### 3. 执行自动化测试
+全量包含 94 个单元与接口测试用例：
+```bash
+./.venv/bin/pytest -v
+```
 
-4. 收盘后全流程：
+---
 
-   `python3 scripts/daily_update.py`
+## ⚠️ 风险提示
+历史回测与模拟盘表现不构成任何投资收益承诺与投资建议。股市有风险，入市需谨慎。
 
-5. 启动看板：
-
-   `python3 scripts/run_dashboard.py`
-
-## 个性化参数（artifacts/user_settings.json）
-
-- risk：单票上限 20%、总仓 80%、止损 7%、止盈 12%
-- engine：初始权重 50/50，自动调权区间 20%–80%
-- account.cash：你的真实资金
-
-## 测试
-
-`python3 -m pytest`
-
-## 风险提示
-
-历史回测与模拟盘不代表未来收益；本工具不构成投资建议。请务必先完成 M4 模拟盘验证期，
-确认绩效跑赢沪深300 且回撤可控后，再考虑投入小额真实资金。
