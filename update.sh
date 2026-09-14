@@ -9,12 +9,16 @@ echo "=========================================================="
 echo "🔄 正在检查并更新 StockPilot 到最新版本..."
 echo "=========================================================="
 
-# 1. 如果是 Git 仓库，自动拉取最新代码（不覆盖本地持仓与个人账本）
+# 1. 如果是 Git 仓库且已关联远程地址，自动拉取最新代码（不覆盖本地持仓与个人账本）
 if [ -d ".git" ]; then
-    echo "📥 正在从远程仓库同步最新代码 (git pull)..."
-    git pull --rebase || {
-        echo "⚠️ git pull 存在未提交冲突，建议检查本地修改，继续尝试启动..."
-    }
+    if git remote get-url origin >/dev/null 2>&1; then
+        echo "📥 正在从远程仓库同步最新代码 (git pull)..."
+        git pull --rebase origin main 2>/dev/null || git pull --rebase || {
+            echo "⚠️ git pull 提示冲突或网络异常，继续启动本地当前版本..."
+        }
+    else
+        echo "ℹ️ 当前尚未绑定远程 Git 仓库，启动本地已有版本。"
+    fi
 else
     echo "ℹ️ 当前未启用 Git 仓库，跳过拉取。"
 fi
