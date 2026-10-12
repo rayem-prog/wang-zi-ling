@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
-from fastapi import APIRouter, Body, Query
+from typing import Any, Literal
+from threading import RLock
+from functools import wraps
+from fastapi import APIRouter, Body, Query, HTTPException
 from pydantic import BaseModel, Field
 
 from strategy.sandbox import (
@@ -12,6 +14,17 @@ from strategy.sandbox import (
     run_multi_scheme_comparison,
     seed_historical_market_data,
 )
+
+_session_lock = RLock()
+
+
+def serialized_session(operation):
+    @wraps(operation)
+    def wrapped(*args, **kwargs):
+        with _session_lock:
+            return operation(*args, **kwargs)
+    return wrapped
+
 
 router = APIRouter(prefix="/api/sandbox", tags=["sandbox"])
 
@@ -44,6 +57,7 @@ def seed_market_data(force: bool = Query(False)) -> dict[str, Any]:
 
 
 @router.post("/init")
+@serialized_session
 def init_sandbox(req: InitSandboxRequest) -> dict[str, Any]:
     """初始化一个全新的历史推演沙盒实例。"""
     sb = get_or_create_sandbox(
@@ -59,6 +73,7 @@ def init_sandbox(req: InitSandboxRequest) -> dict[str, Any]:
 
 
 @router.post("/step")
+@serialized_session
 def step_sandbox(req: StepSandboxRequest) -> dict[str, Any]:
     """时间加速向前推进 n 个交易日。"""
     sb = get_or_create_sandbox()
@@ -66,6 +81,7 @@ def step_sandbox(req: StepSandboxRequest) -> dict[str, Any]:
 
 
 @router.post("/fast-forward")
+@serialized_session
 def fast_forward_sandbox() -> dict[str, Any]:
     """极速完成全周期推演（秒级跑完全部交易日）。"""
     sb = get_or_create_sandbox()
@@ -74,6 +90,7 @@ def fast_forward_sandbox() -> dict[str, Any]:
 
 
 @router.get("/status")
+@serialized_session
 def get_sandbox_status() -> dict[str, Any]:
     """获取当前推演沙盒状态、资产净值走势与绩效指标。"""
     sb = get_or_create_sandbox()
@@ -96,3 +113,61 @@ def compare_schemes(
         custom_config=custom_config,
         watchlist_codes=watchlist_codes,
     )
+
+
+class SandboxJobRequest(BaseModel):
+    request_id: str = Field(..., min_length=1, max_length=100)
+    operation: Literal['init', 'step', 'fast-forward', 'status', 'seed', 'compare', 'personal-plan']
+    params: InitSandboxRequest = Field(default_factory=InitSandboxRequest)
+    days: int = Field(1, ge=1, le=500)
+
+
+@router.post('/jobs')
+def start_sandbox_job(req: SandboxJobRequest):
+    from api.sandbox_jobs import sandbox_jobs
+
+    def work(progress):
+        if req.operation == 'personal-plan':
+            from services.personal_plan import build_personal_plan
+            return build_personal_plan(progress)
+        if req.operation == 'seed':
+            progress('核验完整历史数据，不写入模拟行情')
+            return seed_historical_market_data()
+        if req.operation == 'compare':
+            progress('正在分别推演各方案，请等待历史评价完成')
+            return run_multi_scheme_comparison(**req.params.model_dump(exclude={'scheme'}))
+        with _session_lock:
+            if req.operation == 'init':
+                sb = get_or_create_sandbox(**req.params.model_dump(),force_new=True,progress=progress)
+            else:
+                sb = get_or_create_sandbox(**req.params.model_dump(),progress=progress)
+            if req.operation in ('step','fast-forward'):
+                count = req.days if req.operation == 'step' else len(sb.trading_days)-sb.current_idx
+                for _ in range(count):
+                    if sb.current_idx >= len(sb.trading_days):
+                        break
+                    progress('逐交易日决策、撮合及评价',sb.current_idx,len(sb.trading_days))
+                    sb.step(1)
+                progress('推进完成',sb.current_idx,len(sb.trading_days))
+            return sb.get_state()
+    try:
+        return sandbox_jobs.start(req.request_id,req.operation,work,req.model_dump(exclude={'request_id'}))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@router.get('/jobs/current')
+def current_sandbox_job():
+    from api.sandbox_jobs import sandbox_jobs
+    return sandbox_jobs.current()
+
+
+@router.get('/jobs/{job_id}')
+def get_sandbox_job(job_id: str):
+    from api.sandbox_jobs import sandbox_jobs
+    try:
+        return sandbox_jobs.get(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404,detail='任务不存在，请重新发起') from exc

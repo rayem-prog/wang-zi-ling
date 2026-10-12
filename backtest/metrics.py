@@ -19,9 +19,22 @@ def benchmark_equity(bench_df: pd.DataFrame, start=None, end=None, cash: float =
     return eq
 
 
-def compute_metrics(equity: pd.Series, bench_equity: pd.Series) -> dict:
-    eq = equity.dropna()
-    beq = bench_equity.reindex(eq.index).ffill()
+def compute_metrics(equity: pd.Series, bench_equity: pd.Series, initial_cash: float | None = None) -> dict:
+    eq = equity.dropna().copy()
+    eq.index = pd.DatetimeIndex(eq.index)
+    eq = eq.sort_index()
+    if eq.empty:
+        raise ValueError("没有可评价的净值")
+    bench = bench_equity.copy()
+    bench.index = pd.DatetimeIndex(bench.index)
+    beq = bench.sort_index().reindex(eq.index).ffill()
+    if initial_cash is not None:
+        if initial_cash <= 0:
+            raise ValueError("初始资金必须为正数")
+        if eq.iloc[0] != initial_cash:
+            initial_date = eq.index[0] - pd.Timedelta(days=1)
+            eq = pd.concat([pd.Series([initial_cash], index=[initial_date]), eq])
+            beq = pd.concat([pd.Series([initial_cash], index=[initial_date]), beq])
     rets = eq.pct_change().dropna()
     total_return = eq.iloc[-1] / eq.iloc[0] - 1
     n = len(rets)

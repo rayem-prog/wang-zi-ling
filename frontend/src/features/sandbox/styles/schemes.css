@@ -1,0 +1,241 @@
+.metric-note { display: block; font-size: 11px; color: #d29922; }
+.sandbox-notice { padding: 12px; color: #d29922; background: #332b1b; border: 1px solid #735b2b; }
+.view-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px 20px;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.view-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.view-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #f0f6fc;
+}
+
+.view-subtitle {
+  font-size: 12px;
+  color: #8b949e;
+  margin-top: 3px;
+  display: block;
+}
+
+.toolbar-right {
+  display: flex;
+  gap: 10px;
+}
+
+.action-btn {
+  border: 1px solid #30363d;
+  padding: 7px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.seed-btn {
+  background: #1c2738;
+  border-color: #2b3d5b;
+  color: #58a6ff;
+}
+
+.seed-btn:hover:not(:disabled) {
+  background: #2b3d5b;
+}
+
+.compare-btn {
+  background: #21262d;
+  border-color: #30363d;
+  color: #f0f6fc;
+}
+
+.compare-btn:hover:not(:disabled) {
+  border-color: #58a6ff;
+  color: #58a6ff;
+}
+
+/* 状态提示条 */
+.seed-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: rgba(88, 166, 255, 0.08);
+  border: 1px solid rgba(88, 166, 255, 0.2);
+  border-radius: 6px;
+  font-size: 12px;
+  color: #c9d1d9;
+}
+
+.seed-status-bar b {
+  color: #58a6ff;
+}
+
+/* 方案卡片 */
+.scheme-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.section-label-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sec-badge {
+  background: #238636;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.sec-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f0f6fc;
+}
+
+.schemes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.scheme-card {
+  background: #121824;
+  border: 1px solid #283347;
+  border-radius: 8px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scheme-card:hover {
+  border-color: #3b82f6;
+  transform: translateY(-2px);
+}
+
+.scheme-card.active {
+  border-color: #58a6ff;
+  background: #162033;
+  box-shadow: 0 0 12px rgba(88, 166, 255, 0.2);
+}
+
+.sc-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sc-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f0f6fc;
+  flex: 1;
+}
+
+.sc-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.sc-tag.momentum { background: rgba(255, 77, 79, 0.2); color: #ff4d4f; }
+.sc-tag.value { background: rgba(46, 160, 67, 0.2); color: #2ea043; }
+.sc-tag.balanced { background: rgba(88, 166, 255, 0.2); color: #58a6ff; }
+.sc-tag.custom { background: rgba(168, 85, 247, 0.2); color: #a855f7; }
+
+.sc-desc {
+  font-size: 12px;
+  color: #8b949e;
+  line-height: 1.5;
+  margin: 0;
+  flex: 1;
+}
+
+.sc-footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #8b949e;
+  border-top: 1px solid #1c2738;
+  padding-top: 6px;
+}
+
+.sc-footer b {
+  color: #e2e8f0;
+}
+
+/* 自定义方案调参面板 */
+.custom-config-panel {
+  background: #101622;
+  border: 1px solid #3b82f6;
+  border-radius: 8px;
+  padding: 14px 18px;
+}
+
+.config-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.cfg-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cfg-item label {
+  font-size: 11px;
+  color: #8b949e;
+  font-weight: 600;
+}
+
+.terminal-select {
+  background: #161b22;
+  border: 1px solid #30363d;
+  color: #f0f6fc;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  outline: none;
+}
+
+.terminal-select.mini {
+  width: 95px;
+}
+
+.dual-inputs {
+  display: flex;
+  gap: 6px;
+}
+
+.apply-cfg-btn {
+  margin-top: 16px;
+  background: #238636;
+  color: #fff;
+  border: none;
+  align-self: flex-end;
+}

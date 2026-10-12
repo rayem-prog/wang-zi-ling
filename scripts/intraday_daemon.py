@@ -5,13 +5,22 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import os
+import sqlite3
+import signal
 import subprocess
 import time
+from pathlib import Path
 
 import pandas as pd
+from strategy import risk
 
-from config.settings import Settings, load_settings
-from data import db, fetcher
+from config.settings import Settings, load_settings, settings_version
+from data import db, fetcher, pipeline
+from data.health import assess_data_health, recommendation_state
+from data.timeliness import exchange_now, quote_state
+from scripts.daemon_control import DaemonLease, DaemonAlreadyRunning
+from data.trading_calendar import closure_kind
+from strategy import holdings
 from strategy.notify import CompositeNotifier, build_notifier
 
 
@@ -20,7 +29,7 @@ def is_trading_time(now: dt.datetime | None = None) -> bool:
         now = dt.datetime.now()
 
     # 周一到周五
-    if now.weekday() > 4:
+    if closure_kind(now.date()) is not None:
         return False
 
     cur_time = now.time()
@@ -56,7 +65,7 @@ def check_intraday_triggers(
         for _, h in holdings_df.iterrows():
             code = str(h["code"]).zfill(6)
             name = str(h.get("name", code))
-            cost = float(h.get("cost_price", 0.0))
+            cost = risk.positive(h.get("cost", h.get("cost_price")))
             if cost <= 0 or code not in spot_map:
                 continue
 
@@ -80,7 +89,7 @@ def check_intraday_triggers(
                 triggered.append({"code": code, "type": "take_profit", "level": "P0", "price": cur_price})
 
     # 2. 触发项 C1: 监控昨日指令单买入标的
-    if orders_df is not None and not orders_df.empty:
+    if risk.buying_allowed(risk.current_policy(settings)) and orders_df is not None and not orders_df.empty:
         for _, ord_item in orders_df.iterrows():
             code = str(ord_item["code"]).zfill(6)
             name = str(ord_item.get("name", code))
@@ -113,10 +122,56 @@ def check_intraday_triggers(
     return triggered
 
 
-def run_daemon(settings: Settings | None = None, once: bool = False, poll_interval: int = 60):
-    settings = settings or load_settings()
+def load_monitor_inputs(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
+    """读取真实持仓、自选股和当前指令单；损坏的输入交给守护循环记录错误。"""
+    try:
+        positions = holdings.load_positions(settings.data.db_path)
+        positions = positions.rename(columns={"cost": "cost_price"})
+    except Exception as exc:
+        raise RuntimeError(f"读取持仓失败: {exc}") from exc
+
+    try:
+        with sqlite3.connect(settings.data.db_path) as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_watchlist'"
+            ).fetchone()
+            watchlist = [r[0] for r in conn.execute("SELECT code FROM user_watchlist")] if exists else []
+    except Exception as exc:
+        raise RuntimeError(f"读取自选股失败: {exc}") from exc
+
+    order_state = recommendation_state(settings, assess_data_health(settings))
+    order_ready = order_state["ready"]
+    orders_file = Path(settings.paths.artifact_dir) / "latest_orders.csv"
+    try:
+        orders = (pd.read_csv(orders_file, dtype={"code": str})
+                  if order_ready and orders_file.exists() else pd.DataFrame())
+        if not orders.empty and not {"code", "action", "limit_low", "limit_high"}.issubset(orders.columns):
+            raise ValueError("指令单缺少必要字段")
+        if not order_ready:
+            orders.attrs["blocked_reason"] = order_state["reason"]
+    except Exception as exc:
+        raise RuntimeError(f"读取指令单失败: {exc}") from exc
+
+    codes = set(positions["code"].astype(str).str.zfill(6)) if not positions.empty else set()
+    codes.update(str(code).zfill(6) for code in watchlist)
+    if not orders.empty:
+        codes.update(orders["code"].astype(str).str.zfill(6))
+    codes.update(str(code).zfill(6) for code in settings.universe.extra_codes)
+    return positions, orders, sorted(codes)
+
+
+def run_daemon(settings: Settings | None = None, once: bool = False, poll_interval: int = 60,
+               *, project_root=None, lease_token=None, lease_fd=None):
+    with DaemonLease(project_root or Path.cwd(), lease_token, lease_fd):
+        return _run_daemon(settings, once, poll_interval)
+
+
+def _run_daemon(settings: Settings | None, once: bool, poll_interval: int):
+    reload_config = settings is None
+    settings = settings if settings is not None else load_settings()
     db.init_db(settings.data.db_path)
     notifier = build_notifier(settings)
+    applied_version = settings_version(settings)
 
     # 启动 macOS 防休眠 (caffeinate)
     caffeinate_proc = None
@@ -127,49 +182,48 @@ def run_daemon(settings: Settings | None = None, once: bool = False, poll_interv
             pass
 
     pid = os.getpid()
-    db.record_heartbeat(settings.data.db_path, status="started", message="守护进程已启动", pid=pid)
+    last_minute_capture = 0.0
+    last_error = ""
+    db.record_heartbeat(settings.data.db_path, status="started", message="守护进程已启动", pid=pid, config_version=applied_version)
 
     try:
         while True:
-            now = dt.datetime.now()
-            if not is_trading_time(now) and not once:
-                db.record_heartbeat(settings.data.db_path, status="standby", message="非交易时段，待机轮询中", pid=pid)
-                time.sleep(poll_interval)
-                continue
-
+            now = exchange_now(dt.datetime.now())
             try:
-                # 获取监控列表：持仓 + 自选
-                holdings_df = pd.DataFrame()
-                try:
-                    from strategy.paper import load_positions
-                    holdings_df = load_positions(settings.paths.artifact_dir)
-                except Exception:
-                    pass
-
-                # 获取最新指令单
-                orders_df = pd.DataFrame()
-                try:
-                    orders_file = Path(settings.paths.artifact_dir) / "latest_orders.csv"
-                    if orders_file.exists():
-                        orders_df = pd.read_csv(orders_file)
-                except Exception:
-                    pass
-
-                watch_codes = set()
-                if not holdings_df.empty and "code" in holdings_df.columns:
-                    watch_codes.update(holdings_df["code"].astype(str).str.zfill(6))
-                if not orders_df.empty and "code" in orders_df.columns:
-                    watch_codes.update(orders_df["code"].astype(str).str.zfill(6))
-                for c in settings.universe.extra_codes:
-                    watch_codes.add(str(c).zfill(6))
-
-                if not watch_codes:
-                    watch_codes = {"000001", "600519"}  # 默认兜底监控
+                if reload_config:
+                    try:
+                        candidate = load_settings()
+                        candidate_version = settings_version(candidate)
+                        if candidate_version != applied_version:
+                            # Construct dependencies before publishing the applied version.
+                            candidate_notifier = (build_notifier(candidate)
+                                                  if candidate.notify != settings.notify else notifier)
+                            if candidate.data.db_path != settings.data.db_path:
+                                db.init_db(candidate.data.db_path)
+                            settings = candidate
+                            notifier = candidate_notifier
+                            applied_version = candidate_version
+                    except Exception as exc:
+                        raise RuntimeError(f"配置重载失败: {exc}") from exc
+                if not is_trading_time(now) and not once:
+                    db.record_heartbeat(settings.data.db_path, status="standby", message="非交易时段，待机轮询中",
+                                        pid=pid, config_version=applied_version)
+                    time.sleep(poll_interval)
+                    continue
+                holdings_df, orders_df, watch_codes = load_monitor_inputs(settings)
 
                 # 批量抓取盘中快照
-                spot_df = fetcher.fetch_spot_batch(sorted(watch_codes))
+                spot_df = fetcher.fetch_spot_batch(watch_codes)
+                if watch_codes and spot_df.empty:
+                    raise RuntimeError(f"盘中行情为空，无法监控 {len(watch_codes)} 只标的")
                 if not spot_df.empty:
                     db.save_spot(settings.data.db_path, spot_df)
+                    fresh = spot_df.apply(lambda row: not quote_state(row, now=now)["stale"], axis=1)
+                    spot_df = spot_df[fresh].copy()
+                    if watch_codes and spot_df.empty:
+                        raise RuntimeError("盘中行情没有有效新鲜快照，拒绝触发过期价格提醒")
+                returned_codes = set(spot_df["code"].astype(str).str.zfill(6)) if not spot_df.empty else set()
+                missing_spot = sorted(set(watch_codes) - returned_codes)
 
                 # 判定触发项并分级发送
                 triggers = check_intraday_triggers(
@@ -180,18 +234,37 @@ def run_daemon(settings: Settings | None = None, once: bool = False, poll_interv
                     notifier=notifier,
                 )
 
+                minute_failed = []
+                if not once and watch_codes and time.monotonic() - last_minute_capture >= 1800:
+                    minute_result = pipeline.update_minute_bars(
+                        settings, codes=watch_codes, date=now.date().isoformat()
+                    )
+                    minute_failed = minute_result["failed"] + minute_result["empty"]
+                    last_minute_capture = time.monotonic()
+
                 msg = f"监控 {len(spot_df)} 只标的，触发 {len(triggers)} 项提醒"
-                db.record_heartbeat(settings.data.db_path, status="running", message=msg, pid=pid)
+                if minute_failed:
+                    msg += f"；分钟线采集失败 {len(minute_failed)} 只: {','.join(minute_failed[:10])}"
+                if missing_spot:
+                    msg += f"；盘中行情缺失 {len(missing_spot)} 只: {','.join(missing_spot[:10])}"
+                if orders_df.attrs.get("blocked_reason"):
+                    msg += f"；指令单暂停: {orders_df.attrs['blocked_reason']}"
+                db.record_heartbeat(settings.data.db_path,
+                                    status="degraded" if minute_failed or missing_spot or orders_df.attrs.get("blocked_reason") else "running",
+                                    message=msg, pid=pid, config_version=applied_version)
+                last_error = ""
 
             except Exception as e:
-                db.record_heartbeat(settings.data.db_path, status="error", message=f"轮询异常: {e}", pid=pid)
+                last_error = f"轮询异常: {e}"
+                db.record_heartbeat(settings.data.db_path, status="error", message=last_error, pid=pid, config_version=applied_version)
 
             if once:
                 break
             time.sleep(poll_interval)
 
     finally:
-        db.record_heartbeat(settings.data.db_path, status="stopped", message="守护进程已退出", pid=pid)
+        db.record_heartbeat(settings.data.db_path, status="stopped",
+                            message=(f"守护进程已退出；{last_error}" if last_error else "守护进程已退出"), pid=pid, config_version=applied_version)
         if caffeinate_proc:
             try:
                 caffeinate_proc.terminate()
@@ -199,10 +272,24 @@ def run_daemon(settings: Settings | None = None, once: bool = False, poll_interv
                 pass
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="StockPilot 盘中守护进程")
     parser.add_argument("--once", action="store_true", help="仅执行一轮后退出（用于诊断或测试）")
     parser.add_argument("--interval", type=int, default=60, help="轮询间隔（秒）")
+    parser.add_argument("--project-root", default=str(Path(__file__).resolve().parents[1]))
+    parser.add_argument("--lease-token", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--lease-fd", type=int, default=None, help=argparse.SUPPRESS)
     args = parser.parse_args()
+    os.chdir(args.project_root)
+    def stop(*_):
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, stop)
+    try:
+        run_daemon(once=args.once, poll_interval=args.interval, project_root=args.project_root,
+                   lease_token=args.lease_token, lease_fd=args.lease_fd)
+    except DaemonAlreadyRunning as exc:
+        parser.exit(1, f"{exc}\n")
 
-    run_daemon(once=args.once, poll_interval=args.interval)
+
+if __name__ == "__main__":
+    main()

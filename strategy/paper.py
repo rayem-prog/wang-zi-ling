@@ -8,6 +8,9 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from strategy import risk
+from config.settings import load_settings
+
 DEFAULT_INITIAL_CASH = 1_000_000.0
 
 SAMPLE_STOCK_BASKET = [
@@ -76,13 +79,11 @@ def _conn(path: str) -> sqlite3.Connection:
             if col not in existing_real_cols:
                 conn.execute(f"ALTER TABLE paper_realized ADD COLUMN {col} {col_type}")
 
-        # 初始化账户
-        row = conn.execute("SELECT id FROM paper_account WHERE id = 1").fetchone()
-        if not row:
-            conn.execute(
-                "INSERT INTO paper_account (id, initial_cash, cash, updated_at) VALUES (1, ?, ?, ?)",
-                (DEFAULT_INITIAL_CASH, DEFAULT_INITIAL_CASH, dt.datetime.now().isoformat()),
-            )
+        # Concurrent first access must share one account without overwriting cash.
+        conn.execute(
+            "INSERT OR IGNORE INTO paper_account (id, initial_cash, cash, updated_at) VALUES (1, ?, ?, ?)",
+            (DEFAULT_INITIAL_CASH, DEFAULT_INITIAL_CASH, dt.datetime.now().isoformat()),
+        )
     return conn
 
 
@@ -162,7 +163,9 @@ def execute_paper_order(
     price: float,
     order_type: str = "市价",
 ) -> dict[str, Any]:
-    if shares <= 0 or price <= 0:
+    if side.upper() in ("BUY", "买入"):
+        risk.require_buy_allowed()
+    if not risk.positive(shares) or not risk.positive(price):
         raise ValueError("股数和价格必须大于 0")
 
     conn = _conn(path)
@@ -171,6 +174,9 @@ def execute_paper_order(
     amount = shares * price
 
     try:
+        # Reserve the writer before validating balances or positions so another
+        # order/reset cannot change the ledger between its read and write.
+        conn.execute("BEGIN IMMEDIATE")
         acc_row = conn.execute("SELECT cash FROM paper_account WHERE id = 1").fetchone()
         cash = float(acc_row["cash"]) if acc_row else DEFAULT_INITIAL_CASH
 
@@ -240,6 +246,9 @@ def execute_paper_order(
 
         conn.commit()
         return {"status": "success", "code": code, "side": side, "shares": shares, "price": price, "amount": amount}
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -249,6 +258,7 @@ def reset_paper_account(path: str, initial_cash: float = DEFAULT_INITIAL_CASH) -
     now_str = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
         with conn:
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute("DELETE FROM paper_positions")
             conn.execute("DELETE FROM paper_orders")
             conn.execute("DELETE FROM paper_realized")
@@ -263,6 +273,7 @@ def reset_paper_account(path: str, initial_cash: float = DEFAULT_INITIAL_CASH) -
 
 def generate_random_portfolio(path: str, count: int = 4) -> dict[str, Any]:
     """一键随机生成真实模拟持仓组合。"""
+    risk.require_buy_allowed()
     reset_paper_account(path)
     chosen = random.sample(SAMPLE_STOCK_BASKET, min(count, len(SAMPLE_STOCK_BASKET)))
     allocated_cash_per_stock = (DEFAULT_INITIAL_CASH * 0.7) / len(chosen)
@@ -324,11 +335,14 @@ def paper_summary(path: str, prices: dict[str, float]) -> dict:
     }
 
 
-def generate_ai_trading_plan(path: str, risk_pref: str = "balanced") -> dict[str, Any]:
+def generate_ai_trading_plan(path: str, risk_pref: str = "balanced",
+                             recommendation_path: str = "artifacts/recommendations.csv") -> dict[str, Any]:
     """根据模拟账户当前可用现金、总资产及选股多因子综合评分，生成 AI 自主建仓模拟推演（价格区间与推荐股数）。"""
+    settings = load_settings()
+    policy = risk.current_policy(settings)
+    if not risk.buying_allowed(policy):
+        return {"status": "blocked", "reason": "宏观防守档禁止所有买入与加仓", "recommendations": []}
     acc = get_paper_account(path)
-    cash = acc["cash"]
-    equity = acc["total_equity"]
     held_codes = {p["code"] for p in acc["positions"]}
 
     # 风险偏好档位配置
@@ -338,28 +352,41 @@ def generate_ai_trading_plan(path: str, risk_pref: str = "balanced") -> dict[str
         "aggressive": {"label": "进取突破型", "max_single_ratio": 0.35, "max_stocks": 4},
     }
     cfg = risk_configs.get(risk_pref, risk_configs["balanced"])
-    max_single_ratio = cfg["max_single_ratio"]
+    max_single_ratio = min(cfg["max_single_ratio"], settings.risk.max_single_position)
 
     # 获取候选标的
     candidates = []
-    rec_file = Path("artifacts/recommendations.csv")
+    current_prices = {}
+    rec_file = Path(recommendation_path)
     if rec_file.exists():
         try:
             import pandas as pd
             df = pd.read_csv(rec_file, dtype={"code": str})
             if not df.empty and "code" in df.columns:
+                current_prices = {str(r["code"]).zfill(6): risk.positive(r.get("price")) for _, r in df.iterrows() if risk.positive(r.get("price"))}
                 for _, r in df.head(8).iterrows():
                     c_code = str(r["code"]).zfill(6)
                     c_name = str(r.get("name", c_code))
-                    c_price = float(r.get("price", 0.0))
+                    if r.get("buyable", "") and pd.notna(r.get("buyable")):
+                        continue
+                    c_price = risk.positive(r.get("price"))
                     c_score = float(r.get("score_blend", 0.8))
                     candidates.append((c_code, c_name, c_price, c_score))
         except Exception:
             candidates = []
 
     if not candidates:
-        for code, name, base_price in SAMPLE_STOCK_BASKET:
-            candidates.append((code, name, base_price, 0.82))
+        return {"status": "unavailable", "reason": "没有可用的真实推荐标的",
+                "risk_pref": risk_pref, "recommendations": []}
+
+    if any(code not in current_prices for code in held_codes):
+        return {"status": "unavailable", "reason": "缺少现有持仓报价，无法核实总仓位预算",
+                "risk_pref": risk_pref, "recommendations": []}
+    acc = get_paper_account(path, current_prices)
+    cash = acc["cash"]
+    equity = acc["total_equity"]
+    held_values = {p["code"]: p["market_value"] for p in acc["positions"]}
+    capacity = max(0, equity * policy.max_total_position - acc["market_value"])
 
     # 优先推荐单价亲民、流动性高、适合分批建仓的优质标的，避免百元高价股过早吞噬仓位
     candidates.sort(key=lambda x: (1 if x[2] > 100 else 0, -x[3], x[2]))
@@ -378,23 +405,19 @@ def generate_ai_trading_plan(path: str, risk_pref: str = "balanced") -> dict[str
 
         # 推荐股数计算：根据单票预算与可用资金双重约束，向下取整 100 股
         max_budget = equity * max_single_ratio
-        available_budget = min(cash * 0.5, max_budget)
-        if available_budget < optimal_entry * 100:
-            if cash >= optimal_entry * 100:
-                shares = 100
-            else:
-                shares = 0
-        else:
-            shares = int(available_budget / optimal_entry / 100) * 100
+        shares = risk.buy_shares(max_budget, held_values.get(code, 0), cash, optimal_entry, capacity)
 
         if shares <= 0:
             continue
 
         est_amount = round(shares * optimal_entry, 2)
+        cash -= est_amount
+        capacity -= est_amount
+        held_values[code] = held_values.get(code, 0) + est_amount
         pos_pct = round(est_amount / equity * 100, 1) if equity > 0 else 0.0
 
         half_shares = max(100, (shares // 200) * 100)
-        rest_shares = max(100, shares - half_shares) if shares > half_shares else half_shares
+        rest_shares = shares - half_shares
         ladder = [
             {
                 "tier": "区间下沿 (买二档低吸)",
@@ -410,8 +433,9 @@ def generate_ai_trading_plan(path: str, risk_pref: str = "balanced") -> dict[str
             },
         ]
 
-        target_price = round(price * 1.15, 2)
-        stop_loss = round(price * 0.95, 2)
+        ladder = [tier for tier in ladder if tier["shares"] > 0]
+        target_price = round(price * (1 + settings.risk.take_profit), 2)
+        stop_loss = round(price * (1 - settings.risk.stop_loss), 2)
 
         is_held = code in held_codes
 
@@ -419,7 +443,7 @@ def generate_ai_trading_plan(path: str, risk_pref: str = "balanced") -> dict[str
             f"多模型综合评分 {score:.2f}。"
             f"AI 建议在价格区间 [¥{range_low:.2f} ~ ¥{range_high:.2f}] 内分批挂单吸筹，"
             f"推荐建仓 {shares} 股（预估占用资金 ¥{est_amount:,.2f}，占总资产 {pos_pct}%）。"
-            f"目标止盈价 ¥{target_price:.2f} (+15.0%)，硬止损保护线 ¥{stop_loss:.2f} (-5.0%)。"
+            f"目标止盈价 ¥{target_price:.2f} （配置阈值），硬止损保护线 ¥{stop_loss:.2f} （配置阈值；非收益预测）。"
         )
 
         recommendations.append({
@@ -445,7 +469,7 @@ def generate_ai_trading_plan(path: str, risk_pref: str = "balanced") -> dict[str
         "risk_pref": risk_pref,
         "risk_label": cfg["label"],
         "max_single_ratio": max_single_ratio,
-        "available_cash": round(cash, 2),
+        "available_cash": acc["cash"],
         "total_equity": round(equity, 2),
         "recommendations": recommendations,
     }
@@ -455,18 +479,28 @@ def execute_ai_trading_plan(
     path: str,
     recommendations: list[dict] | None = None,
     risk_pref: str = "balanced",
+    recommendation_path: str = "artifacts/recommendations.csv",
 ) -> dict[str, Any]:
     """AI 一键自主撮合执行模拟建仓。"""
+    if not risk.buying_allowed(risk.current_policy()):
+        return {"status": "blocked", "executed_count": 0, "details": [], "account": get_paper_account(path)}
+    requested = recommendations
+    plan = generate_ai_trading_plan(path, risk_pref, recommendation_path)
+    recommendations = plan.get("recommendations", [])
+    if requested is not None:
+        requested_shares = {str(item.get("code", "")).zfill(6): risk.positive(item.get("recommended_shares")) for item in requested}
+        recommendations = [dict(item, recommended_shares=min(item["recommended_shares"], int(requested_shares.get(item["code"], 0) // 100) * 100))
+                           for item in recommendations if requested_shares.get(item["code"], 0) >= 100]
     if not recommendations:
-        plan = generate_ai_trading_plan(path, risk_pref)
-        recommendations = plan.get("recommendations", [])
+        return {"status": "unavailable", "reason": "没有可执行的真实推荐标的",
+                "executed_count": 0, "details": [], "account": get_paper_account(path)}
 
     executed = []
     for item in recommendations:
         code = item["code"]
         name = item.get("name", code)
         shares = item["recommended_shares"]
-        price = item.get("optimal_entry", item.get("current_price", 10.0))
+        price = item.get("optimal_entry", item.get("current_price", 0.0))
         try:
             res = execute_paper_order(path, code, name, "BUY", shares, price, order_type="AI自主模拟建仓")
             executed.append(res)

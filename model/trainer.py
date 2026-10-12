@@ -18,6 +18,9 @@ def train_model(X, y, seed: int = 42) -> LGBMClassifier:
         colsample_bytree=0.8,
         random_state=seed,
         verbose=-1,
+        deterministic=True,
+        force_col_wise=True,
+        n_jobs=1,
     )
     model.fit(X, y)
     return model

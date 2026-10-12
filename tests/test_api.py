@@ -1,8 +1,11 @@
 """FastAPI 全量接口自动化测试集。"""
 
 from fastapi.testclient import TestClient
+import pandas as pd
 
 from api.main import app
+from api.routers import kline
+from strategy.notify import WebhookNotifier
 
 client = TestClient(app)
 
@@ -71,7 +74,9 @@ def test_recap_endpoints():
     assert isinstance(res.json(), list)
 
 
-def test_kline_endpoints():
+def test_kline_endpoints(monkeypatch):
+    monkeypatch.setattr(kline.fetcher, "fetch_daily", lambda *a, **kw: pd.DataFrame())
+    monkeypatch.setattr(kline.fetcher, "fetch_minute_bars", lambda *a, **kw: pd.DataFrame())
     daily_res = client.get("/api/kline/daily/000001")
     assert daily_res.status_code == 200
     daily_data = daily_res.json()
@@ -79,6 +84,7 @@ def test_kline_endpoints():
     assert "values" in daily_data
     assert "volumes" in daily_data
     assert "mas" in daily_data
+    assert daily_data["available"] is False
 
     min_res = client.get("/api/kline/minute/000001")
     assert min_res.status_code == 200
@@ -87,7 +93,8 @@ def test_kline_endpoints():
     assert "values" in min_data
 
 
-def test_settings_endpoints():
+def test_settings_endpoints(monkeypatch):
+    monkeypatch.setattr(WebhookNotifier, "send", lambda *args, **kwargs: True)
     # 查询配置
     res = client.get("/api/settings")
     assert res.status_code == 200
@@ -144,3 +151,16 @@ def test_intraday_radar_endpoint():
     res = client.get("/api/intraday/radar")
     assert res.status_code == 200
     assert isinstance(res.json(), list)
+
+
+def test_missing_data_never_exposes_sample_signals_or_orders(tmp_path):
+    (tmp_path / "artifacts").mkdir()
+    (tmp_path / "artifacts" / "latest_orders.csv").write_text(
+        "code,action,limit_low,limit_high\n000001,买入,9,11\n", encoding="utf-8"
+    )
+    assert client.get("/api/signals").json() == []
+    assert client.get("/api/orders").json() == []
+    assert client.get("/api/orders/export").status_code == 409
+    status = client.get("/api/status").json()
+    assert status["data_health"]["ready"] is False
+    assert status["recommendation"]["ready"] is False

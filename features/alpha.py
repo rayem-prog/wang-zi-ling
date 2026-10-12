@@ -17,13 +17,29 @@ def _rsi(close: pd.Series, window: int = 14) -> pd.Series:
     delta = close.diff()
     gain = delta.clip(lower=0).rolling(window).mean()
     loss = (-delta.clip(upper=0)).rolling(window).mean()
-    rs = gain / loss.replace(0, pd.NA)
-    return (100 - 100 / (1 + rs)).fillna(50.0)
+    rs = gain / loss.where(loss != 0)
+    values = 100 - 100 / (1 + rs)
+    # A mature all-gain window is overbought; an entirely flat window is neutral.
+    values = values.mask((loss == 0) & (gain > 0), 100.0)
+    return values.fillna(50.0)
 
 
 def compute_features(bars: pd.DataFrame) -> pd.DataFrame:
     if len(bars) < 61:
         raise ValueError("需要至少 61 行日线数据")
+    if 'history_segment' in bars:
+        keys = ['code', 'history_segment'] if 'code' in bars else ['history_segment']
+        frames = []
+        for _, group in bars.groupby(keys, sort=False):
+            features = _continuous_features(group)
+            features['feature_ready'] = range(len(features))
+            features['feature_ready'] = features['feature_ready'] >= 60
+            frames.append(features)
+        return pd.concat(frames, ignore_index=True).sort_values('date').reset_index(drop=True)
+    return _continuous_features(bars)
+
+
+def _continuous_features(bars: pd.DataFrame) -> pd.DataFrame:
     df = bars.copy().sort_values("date").reset_index(drop=True)
     close = df["close"]
     for k in (1, 5, 10, 20, 60):

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import os
+import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -104,4 +107,18 @@ def load_settings(path: str | None = None) -> Settings:
 def save_settings(s: Settings, path: str | None = None) -> None:
     target = Path(path) if path else Path(s.paths.user_settings_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(asdict(s), ensure_ascii=False, indent=2), encoding="utf-8")
+    # Readers in the daemon must see either the complete old or complete new file.
+    fd, temporary = tempfile.mkstemp(prefix=target.name + '.', dir=target.parent)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as output:
+            output.write(json.dumps(asdict(s), ensure_ascii=False, indent=2))
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, target)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def settings_version(s: Settings) -> str:
+    return hashlib.sha256(json.dumps(asdict(s), sort_keys=True).encode()).hexdigest()[:16]

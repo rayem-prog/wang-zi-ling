@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pandas as pd
 
@@ -18,6 +19,7 @@ def _connect(db_path: str) -> sqlite3.Connection:
 
 
 def init_db(db_path: str) -> None:
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = _connect(db_path)
     try:
         conn.executescript(
@@ -52,7 +54,8 @@ def init_db(db_path: str) -> None:
                 timestamp TEXT NOT NULL,
                 status TEXT NOT NULL,
                 message TEXT,
-                pid INTEGER
+                pid INTEGER,
+                config_version TEXT
             );
             CREATE TABLE IF NOT EXISTS macro_history (
                 date TEXT PRIMARY KEY,
@@ -63,15 +66,53 @@ def init_db(db_path: str) -> None:
                 vol REAL,
                 details TEXT
             );
+            CREATE TABLE IF NOT EXISTS data_fetch_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL,
+                source TEXT, status TEXT NOT NULL, rows_added INTEGER NOT NULL,
+                attempted_at TEXT NOT NULL, error TEXT
+            );
             """
         )
+        for table in ("bars", "minute_bars"):
+            columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+            if "source" not in columns:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN source TEXT DEFAULT 'legacy_unknown'")
+            if "fetched_at" not in columns:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN fetched_at TEXT")
+        heartbeat_columns = {row[1] for row in conn.execute("PRAGMA table_info(daemon_heartbeat)")}
+        if "config_version" not in heartbeat_columns:
+            conn.execute("ALTER TABLE daemon_heartbeat ADD COLUMN config_version TEXT")
+        log_columns = {row[1] for row in conn.execute("PRAGMA table_info(data_fetch_log)")}
+        if "kind" not in log_columns:
+            conn.execute("ALTER TABLE data_fetch_log ADD COLUMN kind TEXT DEFAULT 'daily'")
+        spot_columns = {row[1] for row in conn.execute("PRAGMA table_info(spot)")}
+        for column in ("source", "trade_date", "quote_time"):
+            if column not in spot_columns:
+                conn.execute(f"ALTER TABLE spot ADD COLUMN {column} TEXT")
+        from data.baseline import migrate
+        migrate(conn)
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS market_input_version (
+                id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL);
+            INSERT OR IGNORE INTO market_input_version VALUES(1,0);
+        """)
+        for table in ("bars", "minute_bars"):
+            for operation in ("INSERT", "UPDATE", "DELETE"):
+                conn.execute(f"""CREATE TRIGGER IF NOT EXISTS market_version_{table}_{operation.lower()}
+                    AFTER {operation} ON {table} BEGIN
+                        UPDATE market_input_version SET version=version+1 WHERE id=1;
+                    END""")
         conn.commit()
     finally:
         conn.close()
 
 
-def save_bars(db_path: str, code: str, bars: pd.DataFrame) -> int:
+def save_bars(db_path: str, code: str, bars: pd.DataFrame, source: str = "manual") -> int:
+    if source.lower() in {"simulation", "demo", "synthetic"}:
+        raise ValueError("模拟数据不能写入真实行情表")
     conn = _connect(db_path)
+    fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     rows = []
     for _, r in bars.iterrows():
         rows.append(
@@ -80,23 +121,27 @@ def save_bars(db_path: str, code: str, bars: pd.DataFrame) -> int:
                 str(r["date"]),
                 float(r["open"]), float(r["high"]), float(r["low"]),
                 float(r["close"]), float(r["volume"]), float(r["amount"]),
+                source, fetched_at,
             )
         )
     try:
-        conn.executemany(
-            "INSERT OR REPLACE INTO bars (code,date,open,high,low,close,volume,amount) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            rows,
-        )
-        conn.commit()
-        return len(rows)
+        from data.baseline import save_rows, capture_batch
+        names = BAR_COLUMNS + ["source", "fetched_at"]
+        with conn:
+            capture_batch(conn, bars)
+            added = save_rows(conn, "bars", [dict(zip(names, row)) for row in rows],
+                              adjustment=bars.attrs.get("adjustment", "unknown"),
+                              adjustment_version=bars.attrs.get("adjustment_version", "unknown"),
+                              evidence=bars.attrs.get("evidence", ""))
+        return added
     finally:
         conn.close()
 
 
 def load_bars(db_path: str, code: str, start: str | None = None, end: str | None = None) -> pd.DataFrame:
     conn = _connect(db_path)
-    sql = "SELECT code,date,open,high,low,close,volume,amount FROM bars WHERE code=?"
+    sql = ("SELECT * FROM bars WHERE code=? "
+           "AND coalesce(source, '') NOT IN ('simulation','demo','synthetic')")
     params: list = [code]
     if start:
         sql += " AND date>=?"
@@ -112,7 +157,10 @@ def load_bars(db_path: str, code: str, start: str | None = None, end: str | None
     if df.empty:
         return df
     df["date"] = pd.to_datetime(df["date"]).dt.date
-    return df[BAR_COLUMNS]
+    out = df[BAR_COLUMNS]
+    out.attrs["verification_status"] = "verified" if "verification_status" in df and df["verification_status"].eq("verified").all() else "quarantined"
+    out.attrs["quarantined_rows"] = int(df["verification_status"].ne("verified").sum()) if "verification_status" in df else len(df)
+    return out
 
 
 def mark_fresh(db_path: str, code: str) -> None:
@@ -142,10 +190,11 @@ def save_spot(db_path: str, quotes: pd.DataFrame) -> None:
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
     try:
         conn.executemany(
-            "INSERT OR REPLACE INTO spot (code,name,price,pct_change,volume,amount,ts) "
-            "VALUES (?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO spot (code,name,price,pct_change,volume,amount,ts,source,trade_date,quote_time) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
             [
-                (r["code"], r["name"], r["price"], r["pct_change"], r["volume"], r["amount"], ts)
+                (r["code"], r["name"], r["price"], r["pct_change"], r["volume"], r["amount"], ts,
+                 quotes.attrs.get("source", "unknown"), r.get("trade_date"), r.get("quote_time"))
                 for _, r in quotes.iterrows()
             ],
         )
@@ -174,16 +223,57 @@ def list_codes(db_path: str) -> list[str]:
 def get_latest_bar_date(db_path: str, code: str) -> str | None:
     conn = _connect(db_path)
     try:
-        row = conn.execute("SELECT MAX(date) AS max_date FROM bars WHERE code=?", (code,)).fetchone()
+        row = conn.execute("SELECT MAX(date) AS max_date FROM bars WHERE code=? "
+                           "AND coalesce(source, '') NOT IN ('simulation','demo','synthetic')", (code,)).fetchone()
         return row["max_date"] if row and row["max_date"] else None
     finally:
         conn.close()
 
 
-def save_minute_bars(db_path: str, code: str, bars: pd.DataFrame) -> int:
+def get_first_bar_date(db_path: str, code: str) -> str | None:
+    conn = _connect(db_path)
+    try:
+        row = conn.execute("SELECT MIN(date) FROM bars WHERE code=? "
+                           "AND coalesce(source, '') NOT IN ('simulation','demo','synthetic')", (code,)).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def get_latest_bar_metadata(db_path: str, code: str) -> dict | None:
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT date,source,fetched_at,verification_status,quarantine_reason,adjustment,adjustment_version,evidence FROM bars WHERE code=? "
+            "AND coalesce(source, '') NOT IN ('simulation','demo','synthetic') ORDER BY date DESC LIMIT 1", (code,)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def record_fetch(db_path: str, code: str, start: str, end: str, source: str,
+                 status: str, rows_added: int, error: str = "", kind: str = "daily") -> None:
+    conn = _connect(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO data_fetch_log (code,start_date,end_date,source,status,rows_added,attempted_at,error,kind) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (code, start, end, source, status, rows_added,
+             datetime.now(timezone.utc).isoformat(timespec="seconds"), error[:500], kind),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def save_minute_bars(db_path: str, code: str, bars: pd.DataFrame, source: str = "manual") -> int:
+    if source.lower() in {"simulation", "demo", "synthetic", "tencent_price_line"}:
+        raise ValueError("模拟数据或非 OHLC 价格点不能写入真实分钟 K 线表")
     if bars.empty:
         return 0
     conn = _connect(db_path)
+    fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     rows = []
     for _, r in bars.iterrows():
         rows.append(
@@ -196,17 +286,21 @@ def save_minute_bars(db_path: str, code: str, bars: pd.DataFrame) -> int:
                 float(r["low"]),
                 float(r["close"]),
                 float(r["volume"]),
-                float(r["amount"]),
+                None if pd.isna(r["amount"]) else float(r["amount"]),
+                source,
+                fetched_at,
             )
         )
     try:
-        conn.executemany(
-            "INSERT OR REPLACE INTO minute_bars (code,date,time,open,high,low,close,volume,amount) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            rows,
-        )
-        conn.commit()
-        return len(rows)
+        from data.baseline import save_rows, capture_batch
+        names = MINUTE_BAR_COLUMNS + ["source", "fetched_at"]
+        with conn:
+            capture_batch(conn, bars)
+            added = save_rows(conn, "minute_bars", [dict(zip(names, row)) for row in rows],
+                              adjustment=bars.attrs.get("adjustment", "unknown"),
+                              adjustment_version=bars.attrs.get("adjustment_version", "unknown"),
+                              evidence=bars.attrs.get("evidence", ""))
+        return added
     finally:
         conn.close()
 
@@ -217,9 +311,11 @@ def load_minute_bars(
     date: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
+    include_metadata: bool = False,
 ) -> pd.DataFrame:
     conn = _connect(db_path)
-    sql = "SELECT code,date,time,open,high,low,close,volume,amount FROM minute_bars WHERE code=?"
+    sql = ("SELECT * FROM minute_bars WHERE code=? "
+           "AND coalesce(source, '') NOT IN ('simulation','demo','synthetic','tencent_price_line')")
     params: list = [code]
     if date:
         sql += " AND date=?"
@@ -237,25 +333,43 @@ def load_minute_bars(
         conn.close()
     if df.empty:
         return pd.DataFrame(columns=MINUTE_BAR_COLUMNS)
-    return df[MINUTE_BAR_COLUMNS]
+    out = df if include_metadata else df[MINUTE_BAR_COLUMNS]
+    out.attrs["verification_status"] = "verified" if "verification_status" in df and df["verification_status"].eq("verified").all() else "quarantined"
+    out.attrs["quarantined_rows"] = int(df["verification_status"].ne("verified").sum()) if "verification_status" in df else len(df)
+    return out
 
 
 def get_latest_minute_date(db_path: str, code: str) -> str | None:
     conn = _connect(db_path)
     try:
-        row = conn.execute("SELECT MAX(date) AS max_date FROM minute_bars WHERE code=?", (code,)).fetchone()
+        row = conn.execute("SELECT MAX(date) AS max_date FROM minute_bars WHERE code=? "
+                           "AND coalesce(source, '') NOT IN ('simulation','demo','synthetic','tencent_price_line')", (code,)).fetchone()
         return row["max_date"] if row and row["max_date"] else None
     finally:
         conn.close()
 
 
-def record_heartbeat(db_path: str, status: str, message: str = "", pid: int = 0) -> None:
+def get_latest_minute_metadata(db_path: str, code: str) -> dict | None:
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT date,time,source,fetched_at,verification_status,quarantine_reason,adjustment,adjustment_version,evidence FROM minute_bars WHERE code=? "
+            "AND coalesce(source, '') NOT IN ('simulation','demo','synthetic','tencent_price_line') "
+            "ORDER BY date DESC,time DESC LIMIT 1", (code,)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def record_heartbeat(db_path: str, status: str, message: str = "", pid: int = 0,
+                     config_version: str | None = None) -> None:
     conn = _connect(db_path)
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
     try:
         conn.execute(
-            "INSERT INTO daemon_heartbeat (timestamp, status, message, pid) VALUES (?,?,?,?)",
-            (ts, status, message, pid),
+            "INSERT INTO daemon_heartbeat (timestamp, status, message, pid, config_version) VALUES (?,?,?,?,?)",
+            (ts, status, message, pid, config_version),
         )
         conn.commit()
     finally:
@@ -266,7 +380,7 @@ def get_latest_heartbeat(db_path: str) -> dict | None:
     conn = _connect(db_path)
     try:
         row = conn.execute(
-            "SELECT id, timestamp, status, message, pid FROM daemon_heartbeat ORDER BY id DESC LIMIT 1"
+            "SELECT id, timestamp, status, message, pid, config_version FROM daemon_heartbeat ORDER BY id DESC LIMIT 1"
         ).fetchone()
         if not row:
             return None
@@ -309,3 +423,6 @@ def load_macro_history(db_path: str, limit: int = 30) -> pd.DataFrame:
     finally:
         conn.close()
 
+
+# Explicit trusted entrypoints; raw load_bars remains available for quarantined chart inspection.
+from data.baseline import audit_baseline, load_training_bars, publish_bar_snapshot, correct_bar_record, load_training_minute_bars

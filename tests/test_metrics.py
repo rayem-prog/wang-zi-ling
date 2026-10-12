@@ -41,3 +41,17 @@ def test_rank_ic_positive_correlation():
         }
     )
     assert metrics.rank_ic(df) == pytest.approx(1.0)
+
+
+def test_metrics_include_initial_capital_before_first_loss():
+    eq = pd.Series([90000.], index=pd.to_datetime(['2024-03-05']))
+    bench = pd.Series([100000.], index=eq.index)
+    result = metrics.compute_metrics(eq,bench,initial_cash=100000.)
+    assert result['total_return'] == pytest.approx(-.1)
+    assert result['max_drawdown'] == pytest.approx(-.1)
+
+
+def test_intraday_qualification_uses_actual_metric_keys():
+    from backtest.walkforward import check_intraday_qualification
+    assert check_intraday_qualification(dict(ann_return=.1,max_drawdown=-.1),
+        dict(ann_return=.12,max_drawdown=-.11),dict(ann_return=.05))

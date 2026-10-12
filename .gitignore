@@ -13,15 +13,22 @@ __pycache__/
 frontend/node_modules/
 frontend/.vite/
 
-# User Data & Transaction Logs (ensures git pull will never overwrite user holdings or balances)
-data/*.db
-artifacts/*.db
-artifacts/*.csv
-artifacts/*.json
-artifacts/*.joblib
-artifacts/recap_*.md
+# User data, transaction logs, databases and generated reports
+data/**/*.db
+data/**/*.sqlite
+data/**/*.sqlite3
+artifacts/*
 !artifacts/.gitkeep
 !data/.gitkeep
+
+# Local secrets and configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.sqlite
+*.sqlite3
 
 # System & IDE Configs
 .DS_Store
@@ -29,3 +36,10 @@ artifacts/recap_*.md
 .vscode/
 *.log
 
+
+# Local daemon lease and process ownership
+.runtime/
+
+# Local agent notes
+/.superpowers/
+/docs/superpowers/

@@ -11,9 +11,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 from scripts import daily_update
+from data.trading_calendar import closure_kind
 
 
 def job() -> None:
+    if closure_kind(datetime.now().date()) is not None:
+        print(f"{datetime.now().isoformat()} exchange closed; skipped daily update")
+        return
     print(f"{datetime.now().isoformat()} running daily update")
     daily_update.main()
 

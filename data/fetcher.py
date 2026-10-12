@@ -5,10 +5,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import datetime as dt
+import time
 
 import akshare as _ak
 import pandas as pd
 import requests as _requests
+from data.trading_calendar import contains_expected_session
 
 
 STOCK_BAR_COLUMNS = ["code", "date", "open", "high", "low", "close", "volume", "amount"]
@@ -141,6 +144,8 @@ def _rows_to_bars(code: str, rows: list, start=None, end=None) -> pd.DataFrame:
 
 
 def _fetch_kline_tencent(symbol: str, start: str | None, end: str | None, adjust: str = "qfq") -> pd.DataFrame:
+    if adjust not in {"", "none", "qfq"}:
+        raise ValueError(f"腾讯接口尚未验证此复权模式: {adjust}")
     start_s = (start or "2021-01-01").replace("/", "-")
     end_s = (end or "2030-01-01").replace("/", "-")
     param = f"{symbol},day,{start_s},{end_s},2000"
@@ -149,13 +154,17 @@ def _fetch_kline_tencent(symbol: str, start: str | None, end: str | None, adjust
         param += ",qfq"
     else:
         url = "https://web.ifzq.gtimg.cn/appstock/app/kline/kline"
+    time.sleep(0.25)  # 年度分页请求之间留间隔，避免连续突发请求。
     r = _SESSION.get(url, params={"param": param}, timeout=30)
     payload = r.json()
     data = payload.get("data", {})
     if not isinstance(data, dict) or symbol not in data:
         raise ValueError(f"腾讯行情返回异常: {str(payload)[:120]}")
     node = data[symbol]
-    rows = node.get("qfqday") or node.get("day")
+    key = "qfqday" if adjust == "qfq" else "day"
+    if key not in node:
+        raise ValueError(f"腾讯响应缺少 {key}，不能确认请求的复权模式")
+    rows = node[key]
     code = symbol[2:] if symbol[:2] in ("sh", "sz", "bj") else symbol
     return _rows_to_bars(code, rows or [], start=start_s, end=end_s)
 
@@ -170,6 +179,7 @@ def _fetch_spot_tencent(codes: list[str]) -> pd.DataFrame:
         chunk = codes[i : i + 40]
         symbols = ",".join(_tencent_symbol(c) for c in chunk)
         r = _SESSION.get("https://qt.gtimg.cn/q=" + symbols, timeout=30)
+        r.raise_for_status()
         r.encoding = "gbk"
         for line in r.text.split(";"):
             if "=" not in line:
@@ -185,6 +195,9 @@ def _fetch_spot_tencent(codes: list[str]) -> pd.DataFrame:
                     "pct_change": float(parts[32]),
                     "volume": float(parts[36]),
                     "amount": float(parts[37]) * 10_000,
+                    "trade_date": (f"{parts[30][:4]}-{parts[30][4:6]}-{parts[30][6:8]}"
+                                   if len(parts[30]) >= 8 and parts[30][:8].isdigit() else None),
+                    "quote_time": parts[30] or None,
                 }
             )
     if not frames:
@@ -217,60 +230,121 @@ def _fetch_universe_sina(base_pool: str) -> list[str]:
     return sorted(set(codes))
 
 
+def _capture_provider_output(frame: pd.DataFrame, *, adjustment: str, request: dict) -> pd.DataFrame:
+    """保存供应商标准化输出证据；不把它声称为未经转换的 HTTP 原始字节。"""
+    import hashlib
+    payload=json.dumps({"kind":"normalized_provider_output","source":frame.attrs.get("source","unknown"),
+                        "request":request,"rows":json.loads(frame.to_json(orient="records",date_format="iso"))},
+                       sort_keys=True,ensure_ascii=False)
+    digest=hashlib.sha256(payload.encode()).hexdigest()
+    frame.attrs.update(adjustment=adjustment,adjustment_version=("raw-v1" if adjustment=="none" else "sha256:"+digest),
+                       evidence="sha256:"+digest,capture_payload=payload)
+    return frame
+
+
 def fetch_daily(code: str, start: str = "2021-01-01", end: str | None = None, adjust: str = "qfq") -> pd.DataFrame:
-    if _PREFER == "tx":
-        try:
-            df = _fetch_daily_tencent(code, start, end, adjust)
-            if not df.empty:
-                return df
-            raise ValueError("empty")
-        except Exception:
-            return _fetch_daily_em(code, start, end, adjust)
-    try:
-        df = _fetch_daily_em(code, start, end, adjust)
-        if not df.empty:
-            return df
-        raise ValueError("empty")
-    except Exception:
-        return _fetch_daily_tencent(code, start, end, adjust)
+    """腾讯宽日期请求最多返回约 640 行，因此按日历年切段拉取。"""
+    frames = []
+    sources = set()
+    for window_start, window_end in _year_windows(start, end):
+        providers = (
+            (("tencent", _fetch_daily_tencent), ("eastmoney", _fetch_daily_em))
+            if _PREFER == "tx" else
+            (("eastmoney", _fetch_daily_em), ("tencent", _fetch_daily_tencent))
+        )
+        errors = []
+        empty_response = False
+        for source, fn in providers:
+            try:
+                frame = fn(code, window_start, window_end, adjust)
+                if not frame.empty:
+                    frames.append(frame)
+                    sources.add(source)
+                    break
+                empty_response = True
+            except Exception as exc:
+                errors.append(f"{source}: {exc}")
+        else:
+            if errors and not empty_response:
+                raise RuntimeError(f"{code} {window_start}~{window_end} 行情拉取失败: {'; '.join(errors)}")
+            if frames and contains_expected_session(window_start, window_end):
+                raise RuntimeError(f"{code} 历史区间无数据: {window_start}~{window_end}；不能确认是停牌还是采集缺口")
+    out = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=STOCK_BAR_COLUMNS)
+    if not out.empty:
+        out = out.drop_duplicates(subset=["code", "date"], keep="last").sort_values("date").reset_index(drop=True)
+    out.attrs["source"] = "+".join(sorted(sources)) if sources else "unknown"
+    return _capture_provider_output(out, adjustment=adjust or "none", request={"code":code,"start":start,"end":end,"adjustment":adjust or "none"})
+
+
+def _year_windows(start: str | None, end: str | None) -> list[tuple[str, str]]:
+    first = dt.date.fromisoformat(start or "2021-01-01")
+    last = dt.date.fromisoformat(end or dt.date.today().isoformat())
+    windows = []
+    while first <= last:
+        stop = min(last, dt.date(first.year, 12, 31))
+        windows.append((first.isoformat(), stop.isoformat()))
+        first = stop + dt.timedelta(days=1)
+    return windows
 
 
 def fetch_spot_batch(codes: list[str]) -> pd.DataFrame:
     if not codes:
         return pd.DataFrame(columns=SPOT_COLUMNS)
-    if _PREFER == "tx":
+    providers = (("tencent", _fetch_spot_tencent), ("eastmoney", _fetch_spot_em))
+    if _PREFER != "tx":
+        providers = tuple(reversed(providers))
+    errors = []
+    empty_sources = []
+    for source, fn in providers:
         try:
-            df = _fetch_spot_tencent(codes)
+            df = fn(codes)
             if not df.empty:
+                df.attrs["source"] = source
+                if "trade_date" not in df:
+                    df["trade_date"] = None
+                    df["quote_time"] = None
                 return df
-            raise ValueError("empty")
-        except Exception:
-            return _fetch_spot_em(codes)
-    try:
-        df = _fetch_spot_em(codes)
-        if not df.empty:
-            return df
-        raise ValueError("empty")
-    except Exception:
-        return _fetch_spot_tencent(codes)
+            empty_sources.append(source)
+        except Exception as exc:
+            errors.append(f"{source}: {exc}")
+    if errors and not empty_sources:
+        raise RuntimeError(f"盘中行情采集失败: {'; '.join(errors)}")
+    return pd.DataFrame(columns=SPOT_COLUMNS)
 
 
 def fetch_index_daily(symbol: str = "sh000300", start: str | None = None, end: str | None = None) -> pd.DataFrame:
-    if _PREFER == "tx":
-        try:
-            df = _fetch_kline_tencent(symbol, start, end, adjust="")
-            if not df.empty:
-                return df
-            raise ValueError("empty")
-        except Exception:
-            return _fetch_index_daily_em(symbol, start, end)
-    try:
-        df = _fetch_index_daily_em(symbol, start, end)
-        if not df.empty:
-            return df
-        raise ValueError("empty")
-    except Exception:
-        return _fetch_kline_tencent(symbol, start, end, adjust="")
+    frames = []
+    sources = set()
+    for window_start, window_end in _year_windows(start, end):
+        providers = (
+            (("tencent", lambda: _fetch_kline_tencent(symbol, window_start, window_end, adjust="")),
+             ("eastmoney", lambda: _fetch_index_daily_em(symbol, window_start, window_end)))
+            if _PREFER == "tx" else
+            (("eastmoney", lambda: _fetch_index_daily_em(symbol, window_start, window_end)),
+             ("tencent", lambda: _fetch_kline_tencent(symbol, window_start, window_end, adjust="")))
+        )
+        errors = []
+        empty_response = False
+        for source, fn in providers:
+            try:
+                frame = fn()
+                if not frame.empty:
+                    frames.append(frame)
+                    sources.add(source)
+                    break
+                empty_response = True
+            except Exception as exc:
+                errors.append(f"{source}: {exc}")
+        else:
+            if errors and not empty_response:
+                raise RuntimeError(f"{symbol} {window_start}~{window_end} 指数拉取失败: {'; '.join(errors)}")
+            if frames and contains_expected_session(window_start, window_end):
+                raise RuntimeError(f"{symbol} 历史区间无数据: {window_start}~{window_end}；不能确认采集完整")
+    out = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=STOCK_BAR_COLUMNS)
+    if not out.empty:
+        out = out.drop_duplicates(subset=["code", "date"], keep="last").sort_values("date").reset_index(drop=True)
+    out.attrs["source"] = "+".join(sorted(sources)) if sources else "unknown"
+    return _capture_provider_output(out, adjustment="none", request={"code":symbol,"start":start,"end":end})
 
 
 def fetch_universe(base_pool: str = "hs300", extra_codes: tuple[str, ...] = ()) -> list[str]:
@@ -301,9 +375,10 @@ def _fetch_minute_sina(code: str, count: int = 240) -> pd.DataFrame:
         f"/CN_MarketDataService.getKLineData?symbol={symbol}&scale=1&ma=no&datalen={count}"
     )
     r = _SESSION.get(url, timeout=30)
+    r.raise_for_status()
     match = re.search(r"\((.*)\)", r.text, re.S)
     if not match:
-        return pd.DataFrame(columns=MINUTE_BAR_COLUMNS)
+        raise ValueError("新浪分钟线响应格式异常")
     raw = json.loads(match.group(1))
     if not raw:
         return pd.DataFrame(columns=MINUTE_BAR_COLUMNS)
@@ -327,52 +402,6 @@ def _fetch_minute_sina(code: str, count: int = 240) -> pd.DataFrame:
                 "close": float(item.get("close", 0.0)),
                 "volume": float(item.get("volume", 0.0)),
                 "amount": float(item.get("amount", 0.0)),
-            }
-        )
-    df = pd.DataFrame(records)
-    return df[MINUTE_BAR_COLUMNS].sort_values(["date", "time"]).reset_index(drop=True)
-
-
-def _fetch_minute_tencent(code: str) -> pd.DataFrame:
-    symbol = _tencent_symbol(code)
-    url = f"https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={symbol}"
-    r = _SESSION.get(url, timeout=30)
-    data = r.json().get("data", {}).get(symbol, {}).get("data", {})
-    date_str = str(data.get("date", ""))
-    if len(date_str) == 8:
-        date_formatted = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
-    else:
-        date_formatted = date_str
-    lines = data.get("data", [])
-    if not lines:
-        return pd.DataFrame(columns=MINUTE_BAR_COLUMNS)
-    records = []
-    prev_vol = 0.0
-    prev_amt = 0.0
-    for line in lines:
-        parts = line.strip().split()
-        if len(parts) < 4:
-            continue
-        raw_t = parts[0]
-        time_str = f"{raw_t[:2]}:{raw_t[2:4]}" if len(raw_t) >= 4 else raw_t
-        price = float(parts[1])
-        cum_vol = float(parts[2])
-        cum_amt = float(parts[3])
-        bar_vol = max(0.0, cum_vol - prev_vol)
-        bar_amt = max(0.0, cum_amt - prev_amt)
-        prev_vol = cum_vol
-        prev_amt = cum_amt
-        records.append(
-            {
-                "code": str(code).zfill(6),
-                "date": date_formatted,
-                "time": time_str,
-                "open": price,
-                "high": price,
-                "low": price,
-                "close": price,
-                "volume": bar_vol,
-                "amount": bar_amt,
             }
         )
     df = pd.DataFrame(records)
@@ -409,24 +438,78 @@ def _fetch_minute_em(code: str, count: int = 240) -> pd.DataFrame:
     return df[MINUTE_BAR_COLUMNS].sort_values(["date", "time"]).reset_index(drop=True)
 
 
+def _fetch_minute_tencent_mkline(code: str, count: int = 240) -> pd.DataFrame:
+    """Tencent m1 K-line response carries provider OHLC; field 7 is not成交额."""
+    symbol = _tencent_symbol(code)
+    response = _SESSION.get(
+        "https://ifzq.gtimg.cn/appstock/app/kline/mkline",
+        params={"param": f"{symbol},m1,,{int(count)}", "_var": "m1_today"},
+        timeout=30,
+    )
+    response.raise_for_status()
+    text = response.text.strip()
+    if "=" in text:
+        text = text.split("=", 1)[1]
+    payload = json.loads(text)
+    if payload.get("code") not in (0, "0"):
+        raise ValueError(f"腾讯分钟 K 线返回错误: {payload.get('msg') or payload.get('code')}")
+    node = payload.get("data", {}).get(symbol, {})
+    rows = node.get("m1")
+    if rows is None:
+        raise ValueError("腾讯分钟 K 线响应缺少 m1 OHLC 数据")
+    records = []
+    for row in rows:
+        if len(row) < 6:
+            continue
+        stamp = str(row[0])
+        if len(stamp) < 12 or not stamp[:12].isdigit():
+            continue
+        open_, close, high, low, volume = map(float, row[1:6])
+        if min(open_, close, high, low) <= 0 or volume < 0:
+            continue
+        if high < max(open_, close) or low > min(open_, close) or high < low:
+            continue
+        records.append({
+            "code": str(code).zfill(6),
+            "date": f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:8]}",
+            "time": f"{stamp[8:10]}:{stamp[10:12]}",
+            "open": open_, "high": high, "low": low, "close": close,
+            "volume": volume,
+            # The provider's last field is not documented as amount; preserve it as unknown.
+            "amount": None,
+        })
+    result = pd.DataFrame(records, columns=MINUTE_BAR_COLUMNS)
+    if not result.empty:
+        result = result.sort_values(["date", "time"]).reset_index(drop=True)
+    result.attrs["source"] = "tencent_mkline"
+    return result
+
+
 def fetch_minute_bars(code: str, date: str | None = None, count: int = 240) -> pd.DataFrame:
-    df = pd.DataFrame(columns=MINUTE_BAR_COLUMNS)
-    try:
-        df = _fetch_minute_sina(code, count=count)
-        if df.empty:
-            raise ValueError("empty sina")
-    except Exception:
+    errors = []
+    empty_sources = []
+    # Tencent m1 carries OHLC. minute/query only carries price points and is intentionally excluded.
+    providers = (("tencent_mkline", lambda: _fetch_minute_tencent_mkline(code, count=count)),
+                 ("sina", lambda: _fetch_minute_sina(code, count=count)),
+                 ("eastmoney", lambda: _fetch_minute_em(code, count=count)))
+    for source, fn in providers:
         try:
-            df = _fetch_minute_tencent(code)
+            df = fn()
             if df.empty:
-                raise ValueError("empty tencent")
-        except Exception:
-            try:
-                df = _fetch_minute_em(code, count=count)
-            except Exception:
-                df = pd.DataFrame(columns=MINUTE_BAR_COLUMNS)
-
-    if not df.empty and date is not None:
-        df = df[df["date"] == str(date)].reset_index(drop=True)
-    return df
-
+                empty_sources.append(source)
+                continue
+            if date is not None:
+                df = df[df["date"] == str(date)].reset_index(drop=True)
+                if df.empty:
+                    empty_sources.append(source)
+                    continue
+            df.attrs["source"] = source
+            return _capture_provider_output(df, adjustment="qfq" if source == "eastmoney" else "none",
+                                            request={"code":code,"date":date,"count":count,"kind":"minute"})
+        except Exception as exc:
+            errors.append(f"{source}: {exc}")
+    if errors and not empty_sources:
+        raise RuntimeError(f"{code} 分钟线采集失败: {'; '.join(errors)}")
+    out = pd.DataFrame(columns=MINUTE_BAR_COLUMNS)
+    out.attrs["source"] = "+".join(empty_sources) if empty_sources else "unknown"
+    return out

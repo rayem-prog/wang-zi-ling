@@ -1,10 +1,8 @@
-"""启动看板：python3 scripts/run_dashboard.py"""
-
-from __future__ import annotations
-
-import subprocess
-import sys
+"""兼容旧启动命令，启动统一 StockPilot 终端。"""
 from pathlib import Path
+import sys
 
-root = Path(__file__).resolve().parent.parent
-subprocess.run([sys.executable, "-m", "streamlit", "run", str(root / "app" / "main.py")])
+if __name__ == "__main__":
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts.app_runner import main
+    main()

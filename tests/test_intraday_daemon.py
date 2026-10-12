@@ -1,11 +1,23 @@
 import datetime as dt
+import json
+import sqlite3
+from dataclasses import replace
 import pandas as pd
 import pytest
 
 from config.settings import Settings
 from data import db
+from data.health import _expected_session
 from scripts import intraday_daemon
+from strategy import holdings
 from strategy.notify import MockNotifier, CompositeNotifier
+
+
+@pytest.fixture(autouse=True)
+def isolated_daemon_environment(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(intraday_daemon, "build_notifier",
+                        lambda _: CompositeNotifier(mock_notifier=MockNotifier(), mode="mock"))
 
 
 def test_is_trading_time():
@@ -28,6 +40,8 @@ def test_is_trading_time():
     # Saturday 10:00 -> False
     sat = dt.datetime(2026, 9, 19, 10, 0)
     assert intraday_daemon.is_trading_time(sat) is False
+    mid_autumn = dt.datetime(2026, 9, 25, 10, 0)
+    assert intraday_daemon.is_trading_time(mid_autumn) is False
 
 
 def test_check_intraday_triggers():
@@ -96,3 +110,107 @@ def test_daemon_runs_once(monkeypatch, tmp_path):
     hb = db.get_latest_heartbeat(db_path)
     assert hb is not None
     assert hb["status"] in ("stopped", "running")
+
+
+def test_daemon_monitors_positions_watchlist_and_orders_end_to_end(monkeypatch, tmp_path):
+    s = replace(
+        Settings(),
+        data=replace(Settings().data, db_path=str(tmp_path / "market.db")),
+        paths=replace(Settings().paths, artifact_dir=str(tmp_path / "artifacts")),
+        notify=replace(Settings().notify, backend="mock"),
+    )
+    db.init_db(s.data.db_path)
+    holdings.save_positions(s.data.db_path, pd.DataFrame([
+        {"code": "000001", "name": "止损股", "shares": 100, "cost": 10.0},
+        {"code": "000002", "name": "止盈股", "shares": 100, "cost": 10.0},
+    ]))
+    with sqlite3.connect(s.data.db_path) as conn:
+        conn.execute("CREATE TABLE user_watchlist (code TEXT PRIMARY KEY, name TEXT, added_at TEXT)")
+        conn.execute("INSERT INTO user_watchlist VALUES ('000003', '自选股', '2026-09-14')")
+    orders_path = tmp_path / "artifacts" / "latest_orders.csv"
+    orders_path.parent.mkdir()
+    pd.DataFrame([{"code": "000004", "name": "指令股", "action": "买入", "limit_low": 9.5, "limit_high": 10.5}]).to_csv(orders_path, index=False)
+    session = _expected_session(dt.datetime.now())
+    from data.trading_calendar import expected_sessions
+    dates = expected_sessions("2021-01-04", session.isoformat())
+    for code in ("sh000300", "000001", "000002", "000003", "000004"):
+        db.publish_bar_snapshot(s.data.db_path, code, pd.DataFrame([{
+            "code": code, "date": day, "open": 10.0, "high": 10.0,
+            "low": 10.0, "close": 10.0, "volume": 100, "amount": 1000,
+        } for day in dates]), source="test", adjustment="none" if code=="sh000300" else "qfq",
+            adjustment_version="v1", evidence="test://daemon-fixture", reason="controlled fixture")
+    (orders_path.parent / "recommendations.csv").write_text("code,price\n000004,10\n")
+    (orders_path.parent / "latest_recommendations.meta.json").write_text(json.dumps({
+        "trade_date": session.isoformat(), "source": "test",
+        "generated_at": dt.datetime.now().isoformat(), "coverage": 1.0,
+    }))
+    seen = []
+
+    def quotes(codes):
+        seen.extend(codes)
+        rows = [
+            {"code": "000001", "name": "止损股", "price": 9.4, "pct_change": -6.0},
+            {"code": "000002", "name": "止盈股", "price": 11.6, "pct_change": 16.0},
+            {"code": "000003", "name": "自选股", "price": 10.0, "pct_change": 0.0},
+            {"code": "000004", "name": "指令股", "price": 10.0, "pct_change": 0.0},
+        ]
+        return pd.DataFrame([{**row, "volume": 1000, "amount": 10000,
+                              "trade_date": session.isoformat(),
+                              "quote_time": session.strftime("%Y%m%d") + "150000"} for row in rows])
+
+    mock = MockNotifier()
+    notifier = CompositeNotifier(mock_notifier=mock, mode="mock")
+    monkeypatch.setattr(intraday_daemon.fetcher, "fetch_spot_batch", quotes)
+    monkeypatch.setattr(intraday_daemon, "build_notifier", lambda _: notifier)
+    monkeypatch.setattr(intraday_daemon, "is_trading_time", lambda *_: False)
+    intraday_daemon.run_daemon(settings=s, once=True)
+    assert set(seen) == {"000001", "000002", "000003", "000004"}
+    assert len([m for m in mock.sent_messages if m["level"] == "P0"]) == 2
+    assert len([m for m in mock.sent_messages if m["level"] == "P1"]) == 1
+    with sqlite3.connect(s.data.db_path) as conn:
+        messages = conn.execute("SELECT status,message FROM daemon_heartbeat").fetchall()
+    assert any(status == "running" and "触发 3 项" in message for status, message in messages)
+
+
+def test_daemon_records_input_failure_instead_of_running(monkeypatch, tmp_path):
+    s = replace(Settings(), data=replace(Settings().data, db_path=str(tmp_path / "market.db")))
+    db.init_db(s.data.db_path)
+    monkeypatch.setattr(holdings, "load_positions", lambda _: (_ for _ in ()).throw(OSError("持仓损坏")))
+    monkeypatch.setattr(intraday_daemon, "build_notifier", lambda _: CompositeNotifier(mock_notifier=MockNotifier(), mode="mock"))
+    monkeypatch.setattr(intraday_daemon.fetcher, "fetch_spot_batch", lambda _: pd.DataFrame())
+    intraday_daemon.run_daemon(settings=s, once=True)
+    with sqlite3.connect(s.data.db_path) as conn:
+        heartbeats = conn.execute("SELECT status,message FROM daemon_heartbeat").fetchall()
+    assert any(status == "error" and "持仓损坏" in message for status, message in heartbeats)
+    assert not any(status == "running" for status, _ in heartbeats)
+
+
+def test_daemon_does_not_report_running_when_quotes_are_empty(monkeypatch, tmp_path):
+    s = replace(Settings(), data=replace(Settings().data, db_path=str(tmp_path / "market.db")),
+                notify=replace(Settings().notify, backend="mock"),
+                universe=replace(Settings().universe, extra_codes=("000001",)))
+    monkeypatch.setattr(intraday_daemon.fetcher, "fetch_spot_batch", lambda _: pd.DataFrame())
+    intraday_daemon.run_daemon(settings=s, once=True)
+    with sqlite3.connect(s.data.db_path) as conn:
+        heartbeats = conn.execute("SELECT status,message FROM daemon_heartbeat").fetchall()
+    assert any(status == "error" and "行情为空" in message for status, message in heartbeats)
+    assert not any(status == "running" for status, _ in heartbeats)
+
+
+def test_stale_quote_cannot_trigger_a_stop_loss(monkeypatch, tmp_path):
+    s = replace(Settings(), data=replace(Settings().data, db_path=str(tmp_path / "market.db")),
+                notify=replace(Settings().notify, backend="mock"))
+    db.init_db(s.data.db_path)
+    holdings.save_positions(s.data.db_path, pd.DataFrame([
+        {"code": "000001", "name": "持仓", "shares": 100, "cost": 10.0}
+    ]))
+    mock = MockNotifier()
+    monkeypatch.setattr(intraday_daemon, "build_notifier", lambda _: CompositeNotifier(mock_notifier=mock, mode="mock"))
+    monkeypatch.setattr(intraday_daemon.fetcher, "fetch_spot_batch", lambda _: pd.DataFrame([
+        {"code": "000001", "name": "持仓", "price": 8.0, "pct_change": -5.0,
+         "volume": 100, "amount": 800, "trade_date": "2000-01-01"}
+    ]))
+    intraday_daemon.run_daemon(settings=s, once=True)
+    assert mock.sent_messages == []
+    with sqlite3.connect(s.data.db_path) as conn:
+        assert conn.execute("SELECT count(*) FROM daemon_heartbeat WHERE status='error' AND message LIKE '%过期价格%'").fetchone()[0] == 1

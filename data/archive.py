@@ -41,7 +41,7 @@ def archive_cold_minute_bars(
 
         for m in months:
             # Query cold data for month m
-            sql = "SELECT code,date,time,open,high,low,close,volume,amount FROM minute_bars WHERE date LIKE ? AND date < ?"
+            sql = "SELECT * FROM minute_bars WHERE date LIKE ? AND date < ?"
             month_pattern = f"{m}%"
             df = pd.read_sql_query(sql, conn, params=[month_pattern, cutoff_date])
             if df.empty:
@@ -53,16 +53,17 @@ def archive_cold_minute_bars(
             if target_file.exists():
                 old_df = pd.read_parquet(target_file)
                 combined = pd.concat([old_df, df], ignore_index=True)
-                combined = combined.drop_duplicates(subset=["code", "date", "time"]).reset_index(drop=True)
+                combined = combined.drop_duplicates(subset=["code", "date", "time"], keep="last").reset_index(drop=True)
             else:
                 combined = df
 
-            combined[MINUTE_BAR_COLUMNS].to_parquet(target_file, engine="pyarrow", compression="zstd")
+            combined.to_parquet(target_file, engine="pyarrow", compression="zstd")
 
             # Verification: Read back and check
             read_back = pd.read_parquet(target_file)
-            if len(read_back) < len(df):
-                raise IOError(f"Archive verification failed for {target_file}: row count mismatch")
+            check = read_back.set_index(["code", "date", "time"]).loc[df.set_index(["code", "date", "time"]).index]
+            pd.testing.assert_frame_equal(check[df.columns.drop(["code", "date", "time"])].reset_index(drop=True),
+                                          df.drop(columns=["code", "date", "time"]).reset_index(drop=True), check_dtype=False)
 
             # Verified: safely remove from SQLite
             conn.execute(
@@ -97,7 +98,7 @@ def load_minute_bars_with_archive(
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> pd.DataFrame:
-    hot_df = db.load_minute_bars(db_path, code, start_date=start_date, end_date=end_date)
+    hot_df = db.load_minute_bars(db_path, code, start_date=start_date, end_date=end_date, include_metadata=True)
 
     arch_dir = Path(archive_dir)
     cold_frames = []
@@ -117,9 +118,14 @@ def load_minute_bars_with_archive(
                 continue
 
     if not cold_frames:
-        return hot_df
+        out = hot_df[MINUTE_BAR_COLUMNS]
+        out.attrs.update(hot_df.attrs)
+        return out
 
     all_frames = cold_frames + ([hot_df] if not hot_df.empty else [])
     merged = pd.concat(all_frames, ignore_index=True)
-    merged = merged.drop_duplicates(subset=["code", "date", "time"])
-    return merged[MINUTE_BAR_COLUMNS].sort_values(["date", "time"]).reset_index(drop=True)
+    merged = merged.drop_duplicates(subset=["code", "date", "time"], keep="last")
+    out = merged[MINUTE_BAR_COLUMNS].sort_values(["date", "time"]).reset_index(drop=True)
+    out.attrs["verification_status"] = "verified" if "verification_status" in merged and merged["verification_status"].eq("verified").all() else "quarantined"
+    out.attrs["quarantined_rows"] = int(merged["verification_status"].fillna("quarantined").ne("verified").sum()) if "verification_status" in merged else len(merged)
+    return out

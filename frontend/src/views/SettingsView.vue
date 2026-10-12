@@ -27,17 +27,18 @@
             </div>
           </div>
 
+          <span class="hint-text" role="status">{{ configApplicationStatus }}</span>
           <div class="daemon-actions">
             <button
               class="action-btn start-btn"
-              :disabled="daemonStatus.online"
+              :disabled="daemonBusy || daemonStatus.online"
               @click="startDaemon"
             >
               ▶️ 启动盘中守护
             </button>
             <button
               class="action-btn stop-btn"
-              :disabled="!daemonStatus.online"
+              :disabled="daemonBusy || !daemonStatus.online"
               @click="stopDaemon"
             >
               ⏹️ 停止守护
@@ -53,6 +54,15 @@
           <h3 class="card-title">🔔 报警与通知渠道</h3>
         </div>
         <div class="card-body">
+          <div class="form-group">
+            <label class="form-label">通知渠道：</label>
+            <select v-model="form.notify_backend" class="terminal-select">
+              <option value="local">本地</option>
+              <option value="webhook">Webhook</option>
+              <option value="both">本地 + Webhook</option>
+              <option value="mock">测试记录</option>
+            </select>
+          </div>
           <div class="form-group">
             <label class="check-label">
               <input type="checkbox" v-model="form.enable_mac_notify" />
@@ -144,10 +154,23 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { api } from '../api'
 
 const saving = ref(false)
+const daemonBusy = ref(false)
+const desiredConfigVersion = ref('')
+const configApplicationStatus = computed(() => {
+  const desired = desiredConfigVersion.value
+  const applied = daemonStatus.value.config_version
+  if (!desired) return '配置版本待确认'
+  if (!daemonStatus.value.online) return `已保存 ${desired}，守护离线，等待应用`
+  if (applied === desired) return `守护已应用配置 ${desired}`
+  return `已保存 ${desired}，守护当前 ${applied || '待确认'}，等待下一次心跳应用`
+})
+let statusTimer = null
+let statusFlight = null
+let active = true
 const testingNotify = ref(false)
 const notifyResult = ref(null)
 
@@ -164,6 +187,7 @@ const form = ref({
   take_profit: 0.15,
   manual_override: false,
   manual_w_a: 0.6,
+  notify_backend: 'local',
   enable_mac_notify: true,
   webhook_url: '',
   webhook_type: 'generic'
@@ -183,12 +207,14 @@ async function loadSettingsAndStatus() {
         take_profit: sRes.risk?.take_profit || 0.15,
         manual_override: sRes.engine?.manual_override || false,
         manual_w_a: sRes.engine?.manual_w_a || 0.6,
+        notify_backend: sRes.notify?.backend || 'local',
         enable_mac_notify: sRes.notify?.enable_mac_notify ?? true,
         webhook_url: sRes.notify?.webhook_url || '',
         webhook_type: sRes.notify?.webhook_type || 'generic'
       }
     }
 
+    desiredConfigVersion.value = stRes?.config_version || sRes?.config_version || desiredConfigVersion.value
     if (stRes?.daemon) {
       daemonStatus.value = stRes.daemon
     }
@@ -197,22 +223,32 @@ async function loadSettingsAndStatus() {
   }
 }
 
-async function startDaemon() {
+async function changeDaemon(action) {
+  if (daemonBusy.value) return
+  daemonBusy.value = true
   try {
-    await api.startDaemon()
-    setTimeout(loadSettingsAndStatus, 1000)
+    await action()
+    await refreshStatus()
   } catch (err) {
-    alert('启动守护进程失败: ' + err)
+    alert('守护操作失败: ' + (err?.response?.data?.detail || err.message))
+  } finally {
+    daemonBusy.value = false
   }
 }
+const startDaemon = () => changeDaemon(api.startDaemon)
+const stopDaemon = () => changeDaemon(api.stopDaemon)
 
-async function stopDaemon() {
-  try {
-    await api.stopDaemon()
-    setTimeout(loadSettingsAndStatus, 1000)
-  } catch (err) {
-    alert('停止守护进程失败: ' + err)
-  }
+function refreshStatus() {
+  if (statusFlight) return statusFlight
+  statusFlight = api.getStatus().then(status => {
+    if (active && status?.daemon) daemonStatus.value = status.daemon
+    desiredConfigVersion.value = status?.config_version || desiredConfigVersion.value
+  }).catch(err => console.debug('Failed to refresh daemon status:', err)).finally(() => {
+    statusFlight = null
+    clearTimeout(statusTimer)
+    if (active) statusTimer = setTimeout(refreshStatus, 5000)
+  })
+  return statusFlight
 }
 
 async function testNotification() {
@@ -220,13 +256,14 @@ async function testNotification() {
   notifyResult.value = null
   try {
     const res = await api.testNotify({
+      notify_backend: form.value.notify_backend,
       webhook_url: form.value.webhook_url,
       webhook_type: form.value.webhook_type,
       enable_mac_notify: form.value.enable_mac_notify
     })
     notifyResult.value = {
       success: res.webhook_ok || res.mac_ok,
-      message: (res.webhook_ok ? 'Webhook 推送成功！' : '') + (res.mac_ok ? ' macOS 本地通知已弹出！' : '')
+      message: [(res.webhook_ok ? 'Webhook 推送成功！' : ''), (res.mac_ok ? 'macOS 本地通知已弹出！' : '')].filter(Boolean).join(' ') || res.message || '未发送：渠道已关闭或推送失败'
     }
   } catch (err) {
     notifyResult.value = { success: false, message: '推送异常: ' + err }
@@ -238,7 +275,9 @@ async function testNotification() {
 async function saveAllSettings() {
   saving.value = true
   try {
-    await api.updateSettings(form.value)
+    const result = await api.updateSettings(form.value)
+    desiredConfigVersion.value = result.config_version || desiredConfigVersion.value
+    await refreshStatus()
     alert('配置已成功持久化保存到 user_settings.json！')
   } catch (err) {
     alert('保存配置失败: ' + err)
@@ -247,9 +286,22 @@ async function saveAllSettings() {
   }
 }
 
-onMounted(() => {
+const refresh = loadSettingsAndStatus
+function activate() {
+  active = true
   loadSettingsAndStatus()
-})
+  refreshStatus()
+}
+function deactivate() {
+  active = false
+  clearTimeout(statusTimer)
+  statusTimer = null
+}
+onMounted(activate)
+onActivated(activate)
+onDeactivated(deactivate)
+onUnmounted(deactivate)
+defineExpose({ refresh })
 </script>
 
 <style scoped>

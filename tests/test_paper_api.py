@@ -1,9 +1,45 @@
 """模拟盘 API、价格档位下单与选股多维归因自动化测试集。"""
 
+import datetime as dt
+import json
+
+import pandas as pd
 from fastapi.testclient import TestClient
 from api.main import app
+from api.routers import kline
+from data import db
+from data.health import _expected_session
 
 client = TestClient(app)
+
+
+def _seed_current_recommendations():
+    """在隔离数据库中构造通过新鲜度门禁的推荐夹具。"""
+    session = _expected_session(dt.datetime.now())
+    rows = [
+        {"code": "000001", "name": "低价测试股", "price": 10.0, "score_blend": 0.85},
+        {"code": "600036", "name": "中价测试股", "price": 32.0, "score_blend": 0.80},
+    ]
+    from data.trading_calendar import expected_sessions
+    dates = expected_sessions("2021-01-04", session.isoformat())
+    for code in ["sh000300", *[row["code"] for row in rows]]:
+        db.publish_bar_snapshot("data/market.db", code, pd.DataFrame([{
+            "date": day, "open": 10.0, "high": 11.0,
+            "low": 9.0, "close": 10.0, "volume": 1000.0, "amount": 10000.0,
+        } for day in dates]), source="test_fixture", adjustment="none" if code=="sh000300" else "qfq",
+            adjustment_version="v1", evidence="test://recommendations-fixture", reason="controlled fixture")
+    from pathlib import Path
+    artifacts = Path("artifacts")
+    artifacts.mkdir(exist_ok=True)
+    pd.DataFrame(rows).to_csv(artifacts / "recommendations.csv", index=False)
+    (artifacts / "latest_recommendations.meta.json").write_text(json.dumps({
+        "trade_date": session.isoformat(), "source": "test_fixture",
+        "generated_at": dt.datetime.now().isoformat(), "coverage": 1.0,
+    }), encoding="utf-8")
+    # These attribution tests start after the asynchronous audit has completed.
+    from api.health_cache import health_cache
+    from config.settings import load_settings
+    assert health_cache.get(load_settings(), wait=True)['ready']
 
 
 def test_paper_account_init():
@@ -117,6 +153,7 @@ def test_paper_random_portfolio_and_shock():
 
 
 def test_signals_multi_factor_attribution():
+    _seed_current_recommendations()
     res = client.get("/api/signals")
     assert res.status_code == 200
     data = res.json()
@@ -135,17 +172,16 @@ def test_signals_multi_factor_attribution():
     assert isinstance(attr["rationales"], list)
     assert "factors" in attr
     factors = attr["factors"]
-    assert "momentum" in factors
-    assert "trend" in factors
-    assert "volume" in factors
-    assert "model_synergy" in factors
-    assert "risk_safety" in factors
+    assert factors == {}  # 夹具没有因子贡献，不能合成归因分数
+    assert first["score_lgb"] is None
+    assert first["score_linear"] is None
     assert "target_price" in attr
     assert "stop_loss_price" in attr
     assert "holding_period" in attr
 
 
 def test_ai_simulation_plan_and_execute():
+    _seed_current_recommendations()
     # 1. 模拟重置账户
     client.post("/api/paper/reset")
 
@@ -182,22 +218,39 @@ def test_ai_simulation_plan_and_execute():
     assert exec_data["account"]["cash"] < 1_000_000.0
 
 
-def test_kline_rich_data():
+def test_kline_rich_data(monkeypatch):
+    session = _expected_session(dt.datetime.now())
+    def daily(*args, **kwargs):
+        bars = pd.DataFrame([{"code": "600519", "date": session, "open": 100.0,
+                              "high": 101.0, "low": 99.0, "close": 100.5,
+                              "volume": 1000.0, "amount": 100000.0}])
+        bars.attrs["source"] = "test"
+        return bars
+    def minute(*args, **kwargs):
+        bars = daily()
+        bars["date"] = session.isoformat()
+        bars["time"] = "09:30"
+        return bars
+    monkeypatch.setattr(kline.fetcher, "fetch_daily", daily)
+    monkeypatch.setattr(kline.fetcher, "fetch_minute_bars", minute)
     # 日 K 测试（必须不为空且具备完整 OHLC 数据）
-    daily = client.get("/api/kline/daily/600519").json()
-    assert len(daily["dates"]) > 0
-    assert len(daily["values"]) > 0
-    assert len(daily["values"][0]) == 4
-    assert len(daily["mas"]["ma5"]) == len(daily["dates"])
+    daily_result = client.get("/api/kline/daily/600519").json()
+    assert daily_result["available"] is True
+    assert len(daily_result["dates"]) > 0
+    assert len(daily_result["values"]) > 0
+    assert len(daily_result["values"][0]) == 4
+    assert len(daily_result["mas"]["ma5"]) == len(daily_result["dates"])
 
     # 1 分钟分时 K 测试
     minute = client.get("/api/kline/minute/600519").json()
+    assert minute["available"] is True
     assert len(minute["dates"]) > 0
     assert len(minute["values"]) > 0
     assert len(minute["values"][0]) == 4
 
 
 def test_price_bracket_signals():
+    _seed_current_recommendations()
     # 1. 验证价格区间分档统计 API
     stats_res = client.get("/api/signals/stats")
     assert stats_res.status_code == 200
@@ -232,6 +285,3 @@ def test_price_bracket_signals():
     assert len(sort_stocks) > 1
     for i in range(len(sort_stocks) - 1):
         assert sort_stocks[i]["hand_cost"] <= sort_stocks[i + 1]["hand_cost"]
-
-
-

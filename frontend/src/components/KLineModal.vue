@@ -49,11 +49,13 @@
 
       <!-- K线主体画板 -->
       <div class="modal-body">
+        <div v-if="statusMessage && !loading" class="data-notice" role="status">{{ statusMessage }}</div>
         <div v-if="loading" class="chart-loading">
           <span class="spinner"></span>
           <span>正在加载并计算高清晰度 K 线行情...</span>
         </div>
-        <div ref="chartRef" class="chart-canvas"></div>
+        <div v-if="!loading && !hasData" class="chart-empty">暂无可核实的真实行情</div>
+        <div ref="chartRef" v-show="hasData" class="chart-canvas"></div>
       </div>
     </div>
   </div>
@@ -83,6 +85,8 @@ const chartRef = ref(null)
 let chartInstance = null
 
 const currentBar = ref(null)
+const hasData = ref(false)
+const statusMessage = ref('')
 
 const priceClass = computed(() => {
   if (!currentBar.value) return 'up'
@@ -108,6 +112,16 @@ async function loadData() {
       : await api.getMinuteKline(props.stock.code)
 
     loading.value = false
+    hasData.value = !!res.available && !!res.values?.length
+    statusMessage.value = [
+      res.message,
+      res.available ? `交易日 ${res.trade_date || '未知'} · 来源 ${res.source || '未知'} · 更新 ${res.updated_at || '未知'}` : ''
+    ].filter(Boolean).join('。')
+    if (!hasData.value) {
+      currentBar.value = null
+      chartInstance?.clear()
+      return
+    }
     await nextTick()
     renderChart(res)
     setTimeout(() => chartInstance?.resize(), 50)
@@ -116,6 +130,10 @@ async function loadData() {
   } catch (err) {
     console.error('Failed to load kline:', err)
     loading.value = false
+    hasData.value = false
+    currentBar.value = null
+    statusMessage.value = '真实行情加载失败，请稍后重试'
+    chartInstance?.clear()
   }
 }
 
@@ -425,6 +443,20 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.data-notice {
+  padding: 9px 14px;
+  color: #f0c674;
+  background: #332b1b;
+  border-bottom: 1px solid #735b2b;
+  font-size: 12px;
+}
+
+.chart-empty {
+  display: grid;
+  place-items: center;
+  min-height: 260px;
+  color: #8b949e;
+}
 .modal-backdrop {
   position: fixed;
   inset: 0;

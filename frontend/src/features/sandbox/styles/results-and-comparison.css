@@ -1,0 +1,263 @@
+/* 图表卡片 */
+.chart-card {
+  background: #121824;
+  border: 1px solid #283347;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chart-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cch-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f0f6fc;
+}
+
+.cch-tip {
+  font-size: 12px;
+  color: #8b949e;
+  margin-left: 10px;
+}
+
+.cch-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: #c9d1d9;
+}
+
+.leg-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.leg-color {
+  width: 12px;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.leg-color.strategy { background: #58a6ff; }
+.leg-color.benchmark { background: #eab308; }
+
+.equity-chart-box {
+  width: 100%;
+  height: 320px;
+}
+
+/* 明细表格 */
+.details-split-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 1024px) {
+  .details-split-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.detail-box {
+  background: #121824;
+  border: 1px solid #283347;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.dh-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f0f6fc;
+  margin: 0;
+}
+
+.dh-cash {
+  font-size: 12px;
+  color: #58a6ff;
+  font-weight: 600;
+}
+
+.dh-tip {
+  font-size: 11px;
+  color: #8b949e;
+}
+
+.detail-table-wrapper {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.terminal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.terminal-table th {
+  background: #0d121c;
+  color: #8b949e;
+  text-align: left;
+  padding: 8px 10px;
+  font-weight: 600;
+  border-bottom: 1px solid #21262d;
+  position: sticky;
+  top: 0;
+}
+
+.terminal-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid #1c2738;
+  color: #c9d1d9;
+}
+
+.empty-row {
+  text-align: center;
+  padding: 30px !important;
+  color: #8b949e;
+}
+
+.side-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.side-badge.buy {
+  background: rgba(255, 77, 79, 0.2);
+  color: #ff4d4f;
+}
+
+.side-badge.sell {
+  background: rgba(0, 230, 118, 0.2);
+  color: #00e676;
+}
+
+.reason-cell {
+  font-size: 11px;
+  color: #8b949e;
+}
+
+.time-cell {
+  font-family: monospace;
+  font-size: 11px;
+}
+
+/* 对比弹窗 */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.compare-modal-card {
+  width: 900px;
+  max-width: 94vw;
+  height: 600px;
+  background: #0e1420;
+  border: 1px solid #2b3d5b;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.9);
+}
+
+.cm-header {
+  height: 50px;
+  background: #141c2c;
+  border-bottom: 1px solid #212d40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+}
+
+.cm-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f0f6fc;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  color: #8b949e;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.cm-body {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.compare-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #8b949e;
+}
+
+.spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid #30363d;
+  border-top-color: #58a6ff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.compare-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+}
+
+.leaderboard-box {
+  background: #121824;
+  border: 1px solid #212d40;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.compare-chart-canvas {
+  width: 100%;
+  height: 320px;
+}

@@ -7,6 +7,9 @@ from pathlib import Path
 
 import pandas as pd
 
+from strategy import risk
+from config.settings import Settings
+
 ORDER_COLUMNS = [
     "code",
     "name",
@@ -33,21 +36,38 @@ def generate_daily_orders(
     """
     根据选股推荐、现有持仓与宏观闸门，生成次日标准化指令单。
     """
+    settings = settings or Settings()
+    macro_res = macro_res or risk.current_policy(settings)
     orders = []
+    prices = {}
+    if recommendations is not None and not recommendations.empty:
+        prices = {str(r["code"]).zfill(6): risk.positive(r.get("price")) for _, r in recommendations.iterrows()}
+    values = {}
+    if current_holdings is not None:
+        for _, h in current_holdings.iterrows():
+            code = str(h.get("code", "")).zfill(6)
+            price = prices.get(code) or risk.positive(h.get("price"))
+            values[code] = risk.positive(h.get("shares")) * (price or risk.positive(h.get("cost", h.get("cost_price"))))
+    cash_left = max(settings.account.cash, 0)
+    equity = cash_left + sum(values.values())
+    capacity = max(0, equity * min(settings.risk.max_total_position, macro_res.max_total_position) - sum(values.values()))
+    sold_codes = set()
     holding_codes = set()
     if current_holdings is not None and not current_holdings.empty and "code" in current_holdings.columns:
         holding_codes = set(current_holdings["code"].astype(str).str.zfill(6))
 
-    allow_new_buy = getattr(macro_res, "allow_new_buy", True) if macro_res is not None else True
+    allow_new_buy = risk.buying_allowed(macro_res)
 
     # 1. 检查持仓是否需要卖出或减仓
     if current_holdings is not None and not current_holdings.empty:
         for _, h in current_holdings.iterrows():
             code = str(h.get("code", "")).zfill(6)
             name = str(h.get("name", code))
-            shares = int(h.get("shares", 0))
-            cost = float(h.get("cost_price", 0.0))
-            cur_p = float(h.get("price", cost))
+            shares = int(risk.positive(h.get("shares")))
+            cost = risk.positive(h.get("cost", h.get("cost_price")))
+            cur_p = prices.get(code) or risk.positive(h.get("price"))
+            if not shares or not cost or not cur_p:
+                continue
             pnl_pct = (cur_p / cost - 1.0) if cost > 0 else 0.0
 
             # 触发止损或止盈
@@ -55,6 +75,7 @@ def generate_daily_orders(
             take_thresh = settings.risk.take_profit if settings else 0.15
 
             if pnl_pct <= stop_thresh:
+                sold_codes.add(code)
                 orders.append(
                     {
                         "code": code,
@@ -73,6 +94,7 @@ def generate_daily_orders(
                     }
                 )
             elif pnl_pct >= take_thresh:
+                sold_codes.add(code)
                 orders.append(
                     {
                         "code": code,
@@ -96,21 +118,29 @@ def generate_daily_orders(
         for _, rec in recommendations.iterrows():
             code = str(rec.get("code", "")).zfill(6)
             name = str(rec.get("name", code))
-            p = float(rec.get("price", 10.0))
+            p = risk.positive(rec.get("price"))
             w = float(rec.get("suggested_weight", 0.0))
             amt = float(rec.get("suggested_amount", 0.0))
             stop = float(rec.get("stop_loss", round(p * 0.95, 2)))
             take = float(rec.get("take_profit", round(p * 1.15, 2)))
             score = float(rec.get("score_blend", 70.0))
 
-            if w <= 0 or amt <= 0:
+            if code in sold_codes or not p or w <= 0 or amt <= 0 or (pd.notna(rec.get("buyable")) and bool(rec.get("buyable"))):
+                continue
+            if code in holding_codes and not prices.get(code):
                 continue
 
             # 每手 100 股
-            shares = int(amt / p / 100) * 100
+            limit_h = round(p * 1.005, 2)
+            target = min(amt, equity * settings.risk.max_single_position)
+            shares = risk.buy_shares(target, values.get(code, 0), cash_left, limit_h, capacity)
             if shares <= 0:
                 continue
 
+            reserved = shares * limit_h
+            cash_left -= reserved
+            capacity -= reserved
+            values[code] = values.get(code, 0) + reserved
             action = "加仓" if code in holding_codes else "买入"
             limit_l = round(p * 0.995, 2)
             limit_h = round(p * 1.005, 2)
@@ -156,6 +186,10 @@ def generate_daily_recap(
     cap_val = getattr(macro_res, "max_total_position", 0.6) if macro_res else 0.6
     event_str = getattr(macro_res, "event_name", "") if macro_res else ""
 
+    def metric(key, suffix=""):
+        value = holdings_summary.get(key)
+        return f"{float(value):,.2f}{suffix}" if value is not None else "未核实"
+
     md_lines = [
         f"# StockPilot 每日复盘与决策简报 ({trade_date})",
         "",
@@ -165,17 +199,17 @@ def generate_daily_recap(
         f"- **三大指数表现**：{market_summary.get('index_text', '数据采集中')}",
         "",
         "## 2. 账户成绩与表现",
-        f"- **持仓总市值**：¥{holdings_summary.get('market_value', 0):,.2f}",
-        f"- **当日盈亏**：¥{holdings_summary.get('daily_pnl', 0):+,.2f} ({holdings_summary.get('daily_pnl_pct', 0):+.2f}%)",
-        f"- **超额收益(vs 沪深300)**：{holdings_summary.get('excess_pct', 0):+.2f}%",
+        f"- **持仓总市值**：{metric('market_value', ' 元')}",
+        f"- **当日盈亏**：{metric('daily_pnl', ' 元')} ({metric('daily_pnl_pct', '%')})",
+        f"- **超额收益(vs 沪深300)**：{metric('excess_pct', '%')}",
         "",
         "## 3. 昨日指令单执行回顾",
-        f"{market_summary.get('order_exec_review', '- 昨日所有指令按计划限价区间挂单，无异常跳空。')}",
+        f"{market_summary.get('order_exec_review', '- 昨日指令执行情况未核实。')}",
         "",
         "## 4. 双引擎表现跟踪与算法权重自适应演进",
-        f"- **引擎 A (LightGBM)**: {engine_perf.get('engine_a', '胜率 55%, 收益 +0.8%')}",
-        f"- **引擎 B (规则引擎)**: {engine_perf.get('engine_b', '胜率 52%, 收益 +0.5%')}",
-        f"- **动态加权组合**: {engine_perf.get('blend', '收益 +0.9%')}",
+        f"- **引擎 A (LightGBM)**: {engine_perf.get('engine_a', '未核实')}",
+        f"- **引擎 B (规则引擎)**: {engine_perf.get('engine_b', '未核实')}",
+        f"- **动态加权组合**: {engine_perf.get('blend', '未核实')}",
     ]
 
     if engine_perf.get("weight_audit"):
@@ -196,10 +230,10 @@ def generate_daily_recap(
     md_lines.extend([
         "",
         "## 5. 信号与风控复盘",
-        f"{market_summary.get('signal_review', '- 今日无标的触及 -5% 止损线，整体回撤受控。')}",
+        f"{market_summary.get('signal_review', '- 今日信号与回撤情况未核实。')}",
         "",
         "## 6. 临近重大事件提醒",
-        f"{market_summary.get('event_reminder', '- 当前无重大紧迫事件，保持正常节奏。')}",
+        f"{market_summary.get('event_reminder', '- 重大事件信息未核实。')}",
         "",
         "## 7. 明日操作指令单",
     ])
@@ -208,7 +242,7 @@ def generate_daily_recap(
         md_lines.append("> 今日无新增买入或调仓指令，维持现有仓位。")
     else:
         table_lines = [
-            "| 代码 | 标的 | 操作 | 股数 | 参考价 | 限价区间 | 金额 | 止损(-5%) | 止盈(+15%) | 依据与警示 |",
+            "| 代码 | 标的 | 操作 | 股数 | 参考价 | 限价区间 | 金额 | 止损价 | 止盈价 | 依据与警示 |",
             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
         for _, r in orders_df.iterrows():

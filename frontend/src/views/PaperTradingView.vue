@@ -4,7 +4,7 @@
     <div class="view-toolbar">
       <div class="toolbar-left">
         <h2 class="view-title">⏳ AI 历史推演与时间加速沙盒</h2>
-        <span class="view-subtitle">存入往期数据 · 多方案与自定义选股 · 时间加速推演 · 探究 AI 真实盈利水平与实盘胜率</span>
+        <span class="view-subtitle">可信历史数据 · 逐日决策与成交模拟 · 最新行情及持仓方案</span>
       </div>
 
       <div class="toolbar-right">
@@ -12,17 +12,17 @@
         <button
           class="action-btn seed-btn"
           @click="handleSeedData"
-          :disabled="seeding || isPlaying"
-          title="检查并写入 2023-2024 年全量历史行情与基准日K线"
+          :disabled="seeding || sandboxBusy || personalBusy || compareLoading || isPlaying"
+          title="核验已有真实日线及基准，不生成行情"
         >
-          {{ seeding ? '正在存入往期数据...' : '📥 存入/重置往期历史数据' }}
+          {{ seeding ? '正在核验历史数据...' : '📥 检查往期历史数据' }}
         </button>
 
         <!-- 多方案同台竞技对比 -->
         <button
           class="action-btn compare-btn"
           @click="openCompareModal"
-          :disabled="seeding || isPlaying"
+          :disabled="seeding || sandboxBusy || personalBusy || compareLoading || isPlaying"
           title="同时推演 4 种 AI 方案，同台对比净值与超额 Alpha"
         >
           🏁 AI 多方案竞技对比
@@ -34,12 +34,49 @@
     <div class="seed-status-bar" v-if="seedInfo">
       <span class="seed-icon">📊</span>
       <span class="seed-text">
-        往期数据就绪：覆盖 <b>{{ seedInfo.stock_count || 20 }}</b> 只代表性标的与沪深300基准，
-        区间 <b>{{ seedInfo.min_date }}</b> 至 <b>{{ seedInfo.max_date }}</b>，
-        共 <b>{{ (seedInfo.total_bars || 10420).toLocaleString() }}</b> 根历史日 K 记录。
+        历史数据检查：覆盖 <b>{{ seedInfo.stock_count ?? 0 }}</b> 只股票与沪深300基准，
+        区间 <b>{{ seedInfo.min_date || '未知' }}</b> 至 <b>{{ seedInfo.max_date || '未知' }}</b>，
+        共 <b>{{ (seedInfo.total_bars ?? 0).toLocaleString() }}</b> 根历史日 K 记录。
       </span>
     </div>
 
+    <div class="custom-config-panel replay-range">
+      <label>历史推演起止日期：<input type="date" v-model="dateRange.start_date" :disabled="sandboxBusy || isPlaying" /> — <input type="date" v-model="dateRange.end_date" :disabled="sandboxBusy || isPlaying" /></label>
+      <button class="action-btn" @click="handleInitSandbox" :disabled="sandboxBusy || personalBusy || compareLoading || seeding || isPlaying">应用区间并重新推演</button>
+      <span>历史时点收盘决策，次日撮合；不使用未来行情生成当日评分。</span>
+    </div>
+    <section class="chart-card decision-evidence">
+      <div class="chart-card-header">
+        <b>结合我的持仓的最新交易方案</b>
+        <button class="action-btn" @click="loadPersonalPlan" :disabled="personalBusy || sandboxBusy || compareLoading || seeding || isPlaying">{{ personalBusy ? '正在核验与生成…' : '生成 / 更新持仓方案' }}</button>
+      </div>
+      <p v-if="personalBusy">{{ taskProgress }}</p>
+      <p v-if="personalError" role="alert">{{ personalError }}</p>
+      <p v-if="!personalPlan && !personalBusy">点击生成，读取当前持仓、成本与配置现金，结合历史因子及最新完整交易日收盘行情。</p>
+      <template v-if="personalPlan">
+        <p v-if="personalPlan.status === 'blocked'" role="alert">{{ personalPlan.reason }}</p>
+        <template v-else>
+          <p>行情交易日 {{ personalPlan.trade_date }} · 来源 {{ personalPlan.source }} · 可用现金 ¥{{ personalPlan.cash?.toLocaleString() }} · 当前持仓 {{ personalPlan.holdings?.length || 0 }} 只</p>
+          <p>{{ personalPlan.basis }}</p>
+          <p v-if="personalPlan.status === 'limited'" role="alert">方案受限：{{ personalPlan.reason }}；可核验 {{ personalPlan.verified_stock_count }} 只，排除 {{ personalPlan.excluded_stock_count }} 只。以下评分用于观察，不作为新开仓建议。</p>
+          <p v-if="personalPlan.missing_holdings?.length">以下持仓缺少当日可信价格，无法给出可执行指令：{{ personalPlan.missing_holdings.join('、') }}</p>
+          <p>模型状态：{{ personalPlan.decision?.model_audit?.status }} · A/B权重 {{ formatMetric(personalPlan.decision?.w_a) }} / {{ formatMetric(1 - personalPlan.decision?.w_a) }}</p>
+          <div class="evidence-scroll">
+            <table class="evidence-table"><thead><tr><th>标的</th><th>当日收盘</th><th>综合 / A / B 评分</th><th>目标仓位</th><th>具体操作</th><th>历史依据</th></tr></thead><tbody>
+              <tr v-for="row in personalPlan.plan" :key="row.code">
+                <td>{{ row.name }} {{ row.code }}</td><td>¥{{ formatMetric(row.price) }}</td>
+                <td>{{ formatMetric(row.score_blend) }} / {{ formatMetric(row.score_a) }} / {{ formatMetric(row.score_b) }}</td>
+                <td>{{ formatMetric(row.suggested_weight * 100, '%') }}</td>
+                <td>{{ actionText(personalPlan.orders, row.code) }}<br />{{ riskLevels(personalPlan, row) }}</td>
+                <td>{{ evidenceText(personalPlan.evidence, row.code) }}</td>
+              </tr>
+            </tbody></table>
+          </div>
+          <p v-if="!personalPlan.orders?.length">当前约束下没有可执行的新交易指令。</p>
+          <p v-for="order in personalPlan.orders" :key="order.code + order.action">{{ order.name }} {{ order.code }}：{{ order.action }} {{ order.shares }} 股，限价 ¥{{ order.limit_low }}–{{ order.limit_high }}；{{ order.reason }}</p>
+        </template>
+      </template>
+    </section>
     <!-- 1. AI 选股方案配置卡片组 -->
     <div class="scheme-section">
       <div class="section-label-row">
@@ -75,10 +112,10 @@
         >
           <div class="sc-header">
             <span class="sc-icon">🛡️</span>
-            <span class="sc-title">AI 稳健低估值分红</span>
+            <span class="sc-title">AI 低价稳健方案</span>
             <span class="sc-tag value">防御低回撤</span>
           </div>
-          <p class="sc-desc">偏好黄金低价池 (≤¥20) 与低波动高股息资产，单票上限 15%，止损 7%，止盈 12%，稳健长跑。</p>
+          <p class="sc-desc">偏好低价池 (≤¥20)，按历史技术评分筛选，单票上限 15%，止损 7%，止盈 12%，稳健长跑。</p>
           <div class="sc-footer">
             <span>止损: <b>-7%</b></span>
             <span>止盈: <b>+12%</b></span>
@@ -130,7 +167,7 @@
           <div class="cfg-item">
             <label>股票池选择：</label>
             <select v-model="customForm.pool_filter" class="terminal-select">
-              <option value="all">全市场代表性标的池 (20+只)</option>
+              <option value="all">已核验历史标的池</option>
               <option value="watchlist">⭐ 仅推演我的自选股 ({{ watchlistCodes.length }} 只)</option>
               <option value="low">🟢 仅黄金低价池 (≤¥20)</option>
             </select>
@@ -242,7 +279,7 @@
           class="tc-btn play-btn"
           v-if="!isPlaying"
           @click="startPlay"
-          :disabled="sandbox.is_finished"
+          :disabled="sandboxBusy || personalBusy || compareLoading || seeding || sandbox.is_finished || sandbox.status === 'blocked'"
         >
           ▶ 开始时间加速推演
         </button>
@@ -257,7 +294,7 @@
         <button
           class="tc-btn step-btn"
           @click="stepDay(1)"
-          :disabled="isPlaying || sandbox.is_finished"
+          :disabled="sandboxBusy || personalBusy || compareLoading || seeding || isPlaying || sandbox.is_finished || sandbox.status === 'blocked'"
         >
           ⏭ 单日步进 (+1天)
         </button>
@@ -265,7 +302,7 @@
         <button
           class="tc-btn step-btn"
           @click="stepDay(10)"
-          :disabled="isPlaying || sandbox.is_finished"
+          :disabled="sandboxBusy || personalBusy || compareLoading || seeding || isPlaying || sandbox.is_finished || sandbox.status === 'blocked'"
         >
           ⏩ 快速推进 (+10天)
         </button>
@@ -273,29 +310,42 @@
         <button
           class="tc-btn instant-btn"
           @click="handleFastForward"
-          :disabled="isPlaying || sandbox.is_finished"
-          title="秒级直接完成全周期推演"
+          :disabled="sandboxBusy || personalBusy || compareLoading || seeding || isPlaying || sandbox.is_finished || sandbox.status === 'blocked'"
+          title="后台逐日推演全周期，可查看任务进度"
         >
-          ⚡ 极速全周期秒级推演
+          ⚡ 全周期后台推演
         </button>
 
         <button
           class="tc-btn reset-btn"
           @click="handleInitSandbox"
-          :disabled="isPlaying"
+          :disabled="sandboxBusy || personalBusy || compareLoading || seeding || isPlaying"
         >
           🔄 重置回到起点
         </button>
       </div>
     </div>
 
+    <div v-if="sandboxBusy || personalBusy || compareLoading || seeding || sandboxError || sandbox.status === 'blocked'" class="sandbox-notice" role="status">
+      {{ sandboxBusy ? (taskProgress || '正在完成当前推进或配置操作…') : '' }}
+      {{ sandboxError || (sandbox.status === 'blocked' ? `推演已阻断：${sandbox.reason || sandbox.blocked_reason || sandbox.risk_reason || '可信数据不足'}` : '') }}
+    </div>
+    <section class="chart-card decision-evidence" v-if="sandbox.last_decision">
+      <b>历史时点决策依据 · {{ sandbox.last_decision.date }}</b>
+      <p>模型：{{ sandbox.last_decision.model_audit?.status }} · 宏观档位 {{ sandbox.last_decision.macro?.stance }} · 以下是该历史日的模拟持仓方案。</p>
+      <div class="evidence-scroll"><table class="evidence-table"><thead><tr><th>标的</th><th>历史收盘</th><th>综合 / A / B</th><th>目标仓位</th><th>当日指令</th><th>历史依据</th></tr></thead><tbody>
+        <tr v-for="row in sandbox.last_decision.plan" :key="row.code"><td>{{ row.name }} {{ row.code }}</td><td>¥{{ formatMetric(row.price) }}</td><td>{{ formatMetric(row.score_blend) }} / {{ formatMetric(row.score_a) }} / {{ formatMetric(row.score_b) }}</td><td>{{ formatMetric(row.suggested_weight * 100, '%') }}</td><td>{{ actionText(sandbox.last_decision.orders, row.code) }}</td><td>{{ evidenceText(sandbox.evidence, row.code) }}</td></tr>
+      </tbody></table></div>
+      <p v-if="!sandbox.last_decision.plan?.length">该日没有足够可信因子可生成选股方案。</p>
+      <p>评分仅使用截至当日的数据；未来五交易日评价与实际模拟成交收益分别计算。</p>
+    </section>
     <!-- 3. AI 盈利水平核心指标看板 (探究盈利能力) -->
     <div class="metrics-grid">
       <!-- 策略累计收益率 -->
       <div class="metric-card main">
         <span class="m-title">AI 策略累计收益率</span>
         <span class="m-val" :class="sandbox.metrics?.total_return_pct >= 0 ? 'text-up' : 'text-down'">
-          {{ sandbox.metrics?.total_return_pct >= 0 ? '+' : '' }}{{ sandbox.metrics?.total_return_pct || '0.00' }}%
+          {{ formatMetric(sandbox.metrics?.total_return_pct, '%', true) }}
         </span>
         <span class="m-sub">
           总资产: ¥{{ Number(sandbox.total_equity || sandbox.initial_cash || 1000000).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}
@@ -306,7 +356,7 @@
       <div class="metric-card">
         <span class="m-title">同期沪深300基准</span>
         <span class="m-val" :class="sandbox.metrics?.benchmark_return_pct >= 0 ? 'text-up' : 'text-down'">
-          {{ sandbox.metrics?.benchmark_return_pct >= 0 ? '+' : '' }}{{ sandbox.metrics?.benchmark_return_pct || '0.00' }}%
+          {{ formatMetric(sandbox.metrics?.benchmark_return_pct, '%', true) }}
         </span>
         <span class="m-sub">基准对照指数走势</span>
       </div>
@@ -315,7 +365,7 @@
       <div class="metric-card highlight">
         <span class="m-title">超额 Alpha 跑赢幅度</span>
         <span class="m-val" :class="sandbox.metrics?.alpha_pct >= 0 ? 'text-up' : 'text-down'">
-          {{ sandbox.metrics?.alpha_pct >= 0 ? '+' : '' }}{{ sandbox.metrics?.alpha_pct || '0.00' }}%
+          {{ formatMetric(sandbox.metrics?.alpha_pct, '%', true) }}
         </span>
         <span class="m-sub">策略大幅跑赢大盘超额收益</span>
       </div>
@@ -324,7 +374,7 @@
       <div class="metric-card">
         <span class="m-title">历史最大回撤 (MaxDD)</span>
         <span class="m-val text-down">
-          -{{ sandbox.metrics?.max_drawdown_pct || '0.00' }}%
+          {{ formatMetric(sandbox.metrics?.max_drawdown_pct == null ? null : -Math.abs(sandbox.metrics.max_drawdown_pct), '%') }}
         </span>
         <span class="m-sub">峰值至谷底最大跌幅</span>
       </div>
@@ -333,7 +383,7 @@
       <div class="metric-card">
         <span class="m-title">AI 交易胜率</span>
         <span class="m-val text-warning">
-          {{ sandbox.metrics?.win_rate_pct || '0.0' }}%
+          {{ formatMetric(sandbox.metrics?.win_rate_pct, '%') }}
         </span>
         <span class="m-sub">已结算交易 {{ sandbox.metrics?.total_trades || 0 }} 笔</span>
       </div>
@@ -342,7 +392,8 @@
       <div class="metric-card">
         <span class="m-title">盈亏比 / 年化夏普比率</span>
         <span class="m-val">
-          {{ sandbox.metrics?.profit_loss_ratio || '1.00' }} / {{ sandbox.metrics?.sharpe_ratio || '0.00' }}
+          {{ formatMetric(sandbox.metrics?.profit_loss_ratio) }} / {{ formatMetric(sandbox.metrics?.sharpe_ratio) }}
+          <small v-if="sandbox.metric_reasons?.profit_loss_ratio" class="metric-note">未定义：{{ sandbox.metric_reasons.profit_loss_ratio }}</small>
         </span>
         <span class="m-sub">胜率与风报比兼顾</span>
       </div>
@@ -368,6 +419,7 @@
       <!-- 左侧：当前推演持仓 -->
       <div class="detail-box">
         <div class="detail-header">
+          <p v-if="sandbox.risk_reason" class="dh-tip">{{ sandbox.risk_reason }}</p>
           <h3 class="dh-title">💼 推演当前持仓 ({{ sandbox.positions?.length || 0 }} 只)</h3>
           <span class="dh-cash">可用现金: ¥{{ Number(sandbox.cash || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</span>
         </div>
@@ -464,6 +516,9 @@
           </div>
 
           <div v-else class="compare-content">
+            <div v-if="compareData.status === 'blocked'" class="sandbox-notice" role="status">
+              对比已阻断：{{ compareData.blocked_reason || '可信数据不足' }}，收益指标未定义。
+            </div>
             <!-- 榜单对比表格 -->
             <div class="leaderboard-box">
               <table class="terminal-table">
@@ -479,16 +534,16 @@
                 </thead>
                 <tbody>
                   <tr v-for="(summary, skey) in compareData.summary" :key="skey">
-                    <td><b>{{ summary.name }}</b></td>
+                    <td><b>{{ summary.name }}</b><small v-if="summary.status === 'blocked'" class="metric-note">{{ summary.blocked_reason }} · 未定义</small></td>
                     <td :class="summary.total_return_pct >= 0 ? 'text-up' : 'text-down'">
-                      {{ summary.total_return_pct >= 0 ? '+' : '' }}{{ summary.total_return_pct }}%
+                      {{ formatMetric(summary.total_return_pct, '%', true) }}
                     </td>
                     <td :class="summary.alpha_pct >= 0 ? 'text-up' : 'text-down'">
-                      {{ summary.alpha_pct >= 0 ? '+' : '' }}{{ summary.alpha_pct }}%
+                      {{ formatMetric(summary.alpha_pct, '%', true) }}
                     </td>
-                    <td class="text-down">-{{ summary.max_drawdown_pct }}%</td>
-                    <td class="text-warning">{{ summary.win_rate_pct }}%</td>
-                    <td><b>{{ summary.sharpe_ratio }}</b></td>
+                    <td class="text-down">{{ formatMetric(summary.max_drawdown_pct == null ? null : -Math.abs(summary.max_drawdown_pct), '%') }}</td>
+                    <td class="text-warning">{{ formatMetric(summary.win_rate_pct, '%') }}</td>
+                    <td><b>{{ formatMetric(summary.sharpe_ratio) }}</b></td>
                   </tr>
                 </tbody>
               </table>
@@ -510,1052 +565,31 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
-import * as echarts from 'echarts'
-import { api } from '../api'
 import KLineModal from '../components/KLineModal.vue'
-
-const seeding = ref(false)
-const seedInfo = ref(null)
-
-const currentScheme = ref('momentum') // 'momentum' | 'value' | 'balanced' | 'custom'
-const playSpeed = ref(3) // 1, 3, 10
-const isPlaying = ref(false)
-let playTimer = null
-
-const sandbox = ref({
-  current_date: '',
-  current_step: 0,
-  total_steps: 0,
-  progress_pct: 0,
-  is_finished: false,
-  cash: 1000000,
-  total_equity: 1000000,
-  positions: [],
-  equity_curve: [],
-  trades: [],
-  metrics: {
-    total_return_pct: 0,
-    benchmark_return_pct: 0,
-    alpha_pct: 0,
-    max_drawdown_pct: 0,
-    win_rate_pct: 0,
-    profit_loss_ratio: 1,
-    total_trades: 0,
-    sharpe_ratio: 0,
-  }
-})
-
-const watchlistCodes = ref([])
-
-const customForm = reactive({
-  pool_filter: 'all',
-  initial_cash: 1000000,
-  max_single_weight: 0.20,
-  stop_loss: 0.05,
-  take_profit: 0.15,
-  rebalance_interval: 5,
-  max_positions: 5,
-})
-
-const curveChartRef = ref(null)
-let curveChartInstance = null
-
-const compareModalVisible = ref(false)
-const compareLoading = ref(false)
-const compareData = ref({ summary: {}, curves: {}, benchmark_curve: [] })
-const compareChartRef = ref(null)
-let compareChartInstance = null
-
-const klineVisible = ref(false)
-const selectedStockForKline = ref(null)
-
-function selectScheme(s) {
-  if (isPlaying.value) pausePlay()
-  currentScheme.value = s
-  handleInitSandbox()
-}
-
-function setPlaySpeed(sp) {
-  playSpeed.value = sp
-  if (isPlaying.value) {
-    pausePlay()
-    startPlay()
-  }
-}
-
-async function handleSeedData() {
-  seeding.value = true
-  try {
-    const res = await api.seedSandboxData(true)
-    seedInfo.value = res
-    await handleInitSandbox()
-  } catch (err) {
-    console.error('Failed to seed data:', err)
-  } finally {
-    seeding.value = false
-  }
-}
-
-async function handleInitSandbox() {
-  pausePlay()
-  try {
-    const params = {
-      scheme: currentScheme.value,
-      start_date: '2023-01-03',
-      end_date: '2024-12-31',
-      initial_cash: currentScheme.value === 'custom' ? customForm.initial_cash : 1000000,
-      custom_config: currentScheme.value === 'custom' ? { ...customForm } : null,
-      watchlist_codes: watchlistCodes.value,
-    }
-    const state = await api.initSandbox(params)
-    sandbox.value = state
-    updateCurveChart(state.equity_curve)
-  } catch (err) {
-    console.error('Failed to init sandbox:', err)
-  }
-}
-
-async function stepDay(days = 1) {
-  try {
-    const state = await api.stepSandbox(days)
-    sandbox.value = state
-    updateCurveChart(state.equity_curve)
-    if (state.is_finished) {
-      pausePlay()
-    }
-  } catch (err) {
-    console.error('Failed to step sandbox:', err)
-    pausePlay()
-  }
-}
-
-function startPlay() {
-  if (sandbox.value.is_finished) return
-  isPlaying.value = true
-  const intervalMs = playSpeed.value === 1 ? 1000 : (playSpeed.value === 3 ? 350 : 100)
-  playTimer = setInterval(() => {
-    stepDay(1)
-  }, intervalMs)
-}
-
-function pausePlay() {
-  isPlaying.value = false
-  if (playTimer) {
-    clearInterval(playTimer)
-    playTimer = null
-  }
-}
-
-async function handleFastForward() {
-  pausePlay()
-  try {
-    const state = await api.fastForwardSandbox()
-    sandbox.value = state
-    updateCurveChart(state.equity_curve)
-  } catch (err) {
-    console.error('Failed to fast forward:', err)
-  }
-}
-
-function updateCurveChart(curve) {
-  if (!curveChartRef.value) return
-  if (!curveChartInstance) {
-    curveChartInstance = echarts.init(curveChartRef.value, 'dark')
-  }
-
-  const dates = (curve || []).map(p => p.date)
-  const strategyRet = (curve || []).map(p => p.return_pct)
-  const benchRet = (curve || []).map(p => p.benchmark_return_pct)
-
-  const option = {
-    backgroundColor: 'transparent',
-    tooltip: {
-      trigger: 'axis',
-      backgroundColor: '#161b22',
-      borderColor: '#30363d',
-      textStyle: { color: '#e2e8f0', fontSize: 12 },
-      formatter: (params) => {
-        if (!params.length) return ''
-        let res = `<div style="font-weight:700;margin-bottom:4px">${params[0].axisValue}</div>`
-        params.forEach(p => {
-          const color = p.color
-          res += `<div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px"></span>`
-          res += `${p.seriesName}: <b>${p.value >= 0 ? '+' : ''}${p.value}%</b></div>`
-        })
-        return res
-      }
-    },
-    grid: {
-      left: '4%',
-      right: '3%',
-      top: '12%',
-      bottom: '10%',
-      containLabel: true
-    },
-    xAxis: {
-      type: 'category',
-      data: dates,
-      axisLine: { lineStyle: { color: '#30363d' } },
-      axisLabel: { color: '#8b949e', fontSize: 11 }
-    },
-    yAxis: {
-      type: 'value',
-      axisLabel: {
-        color: '#8b949e',
-        formatter: '{value}%'
-      },
-      splitLine: { lineStyle: { color: '#161e2e', type: 'dashed' } }
-    },
-    series: [
-      {
-        name: 'AI 策略收益率',
-        type: 'line',
-        data: strategyRet,
-        smooth: true,
-        showSymbol: false,
-        lineStyle: { color: '#58a6ff', width: 2.5 },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(88, 166, 255, 0.35)' },
-            { offset: 1, color: 'rgba(88, 166, 255, 0.02)' }
-          ])
-        }
-      },
-      {
-        name: '沪深300基准收益率',
-        type: 'line',
-        data: benchRet,
-        smooth: true,
-        showSymbol: false,
-        lineStyle: { color: '#eab308', width: 2, type: 'dashed' }
-      }
-    ]
-  }
-
-  curveChartInstance.setOption(option, true)
-}
-
-async function openCompareModal() {
-  compareModalVisible.value = true
-  compareLoading.value = true
-  try {
-    const res = await api.compareSandboxSchemes({
-      start_date: '2023-01-03',
-      end_date: '2024-12-31',
-      initial_cash: 1000000,
-      custom_config: { ...customForm },
-      watchlist_codes: watchlistCodes.value,
-    })
-    compareData.value = res
-    await nextTick()
-    renderCompareChart(res)
-  } catch (err) {
-    console.error('Failed to compare schemes:', err)
-  } finally {
-    compareLoading.value = false
-  }
-}
-
-function renderCompareChart(data) {
-  if (!compareChartRef.value) return
-  if (!compareChartInstance) {
-    compareChartInstance = echarts.init(compareChartRef.value, 'dark')
-  }
-
-  const curves = data.curves || {}
-  const bench = data.benchmark_curve || []
-  const dates = bench.map(p => p.date)
-
-  const series = []
-  const colors = {
-    momentum: '#ff4d4f',
-    value: '#2ea043',
-    balanced: '#58a6ff',
-    custom: '#a855f7'
-  }
-  const names = {
-    momentum: 'AI 强势动量',
-    value: 'AI 稳健价值',
-    balanced: 'AI 双引擎均衡',
-    custom: '自定义方案'
-  }
-
-  for (const [k, pts] of Object.entries(curves)) {
-    series.push({
-      name: names[k] || k,
-      type: 'line',
-      data: pts.map(p => p.return_pct),
-      smooth: true,
-      showSymbol: false,
-      lineStyle: { color: colors[k] || '#c9d1d9', width: 2.2 }
-    })
-  }
-
-  series.push({
-    name: '沪深300基准',
-    type: 'line',
-    data: bench.map(p => p.return_pct),
-    smooth: true,
-    showSymbol: false,
-    lineStyle: { color: '#eab308', width: 2, type: 'dashed' }
-  })
-
-  const option = {
-    backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis' },
-    legend: { textStyle: { color: '#c9d1d9' } },
-    grid: { left: '4%', right: '3%', top: '15%', bottom: '10%', containLabel: true },
-    xAxis: { type: 'category', data: dates, axisLabel: { color: '#8b949e' } },
-    yAxis: { type: 'value', axisLabel: { formatter: '{value}%', color: '#8b949e' } },
-    series
-  }
-
-  compareChartInstance.setOption(option, true)
-}
-
-function handleResize() {
-  if (curveChartInstance) curveChartInstance.resize()
-  if (compareChartInstance) compareChartInstance.resize()
-}
-
-onMounted(async () => {
-  window.addEventListener('resize', handleResize)
-  // 获取自选股
-  try {
-    const wl = await api.getWatchlist()
-    if (wl) watchlistCodes.value = wl.map(s => s.code)
-  } catch (err) {
-    console.debug('Failed to get watchlist:', err)
-  }
-
-  // 检查种子状态
-  try {
-    const seedRes = await api.seedSandboxData(false)
-    seedInfo.value = seedRes
-  } catch (err) {
-    console.debug('Seed check:', err)
-  }
-
-  // 初始化沙盒
-  await handleInitSandbox()
-})
-
-onUnmounted(() => {
-  pausePlay()
-  window.removeEventListener('resize', handleResize)
-  if (curveChartInstance) curveChartInstance.dispose()
-  if (compareChartInstance) compareChartInstance.dispose()
-})
+import { useSandboxPage } from '../features/sandbox/useSandboxPage.js'
+const {
+  seeding, seedInfo, taskProgress, dateRange, personalPlan, personalBusy, personalError, loadPersonalPlan, riskLevels, evidenceText, actionText, currentScheme, playSpeed, isPlaying,
+  sandboxBusy, sandboxError, sandbox, watchlistCodes, customForm,
+  curveChartRef, compareModalVisible, compareLoading, compareData, compareChartRef,
+  klineVisible, selectedStockForKline, selectScheme, setPlaySpeed, handleSeedData,
+  formatMetric, runSandboxOperation, handleInitSandbox, stepDay, schedulePlay,
+  startPlay, pausePlay, handleFastForward, refresh, updateCurveChart,
+  openCompareModal, renderCompareChart, handleResize
+} = useSandboxPage()
+defineExpose({ refresh })
 </script>
 
+<style scoped src="../features/sandbox/styles/schemes.css"></style>
+<style scoped src="../features/sandbox/styles/playback-and-metrics.css"></style>
+<style scoped src="../features/sandbox/styles/results-and-comparison.css"></style>
+
 <style scoped>
-.view-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  padding: 16px 20px;
-  gap: 16px;
-  overflow-y: auto;
-}
-
-.view-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.view-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: #f0f6fc;
-}
-
-.view-subtitle {
-  font-size: 12px;
-  color: #8b949e;
-  margin-top: 3px;
-  display: block;
-}
-
-.toolbar-right {
-  display: flex;
-  gap: 10px;
-}
-
-.action-btn {
-  border: 1px solid #30363d;
-  padding: 7px 16px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.seed-btn {
-  background: #1c2738;
-  border-color: #2b3d5b;
-  color: #58a6ff;
-}
-
-.seed-btn:hover:not(:disabled) {
-  background: #2b3d5b;
-}
-
-.compare-btn {
-  background: #21262d;
-  border-color: #30363d;
-  color: #f0f6fc;
-}
-
-.compare-btn:hover:not(:disabled) {
-  border-color: #58a6ff;
-  color: #58a6ff;
-}
-
-/* 状态提示条 */
-.seed-status-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 16px;
-  background: rgba(88, 166, 255, 0.08);
-  border: 1px solid rgba(88, 166, 255, 0.2);
-  border-radius: 6px;
-  font-size: 12px;
-  color: #c9d1d9;
-}
-
-.seed-status-bar b {
-  color: #58a6ff;
-}
-
-/* 方案卡片 */
-.scheme-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.section-label-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.sec-badge {
-  background: #238636;
-  color: #ffffff;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.sec-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #f0f6fc;
-}
-
-.schemes-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px;
-}
-
-.scheme-card {
-  background: #121824;
-  border: 1px solid #283347;
-  border-radius: 8px;
-  padding: 14px 16px;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.scheme-card:hover {
-  border-color: #3b82f6;
-  transform: translateY(-2px);
-}
-
-.scheme-card.active {
-  border-color: #58a6ff;
-  background: #162033;
-  box-shadow: 0 0 12px rgba(88, 166, 255, 0.2);
-}
-
-.sc-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.sc-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #f0f6fc;
-  flex: 1;
-}
-
-.sc-tag {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.sc-tag.momentum { background: rgba(255, 77, 79, 0.2); color: #ff4d4f; }
-.sc-tag.value { background: rgba(46, 160, 67, 0.2); color: #2ea043; }
-.sc-tag.balanced { background: rgba(88, 166, 255, 0.2); color: #58a6ff; }
-.sc-tag.custom { background: rgba(168, 85, 247, 0.2); color: #a855f7; }
-
-.sc-desc {
-  font-size: 12px;
-  color: #8b949e;
-  line-height: 1.5;
-  margin: 0;
-  flex: 1;
-}
-
-.sc-footer {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  color: #8b949e;
-  border-top: 1px solid #1c2738;
-  padding-top: 6px;
-}
-
-.sc-footer b {
-  color: #e2e8f0;
-}
-
-/* 自定义方案调参面板 */
-.custom-config-panel {
-  background: #101622;
-  border: 1px solid #3b82f6;
-  border-radius: 8px;
-  padding: 14px 18px;
-}
-
-.config-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 16px;
-}
-
-.cfg-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.cfg-item label {
-  font-size: 11px;
-  color: #8b949e;
-  font-weight: 600;
-}
-
-.terminal-select {
-  background: #161b22;
-  border: 1px solid #30363d;
-  color: #f0f6fc;
-  padding: 5px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  outline: none;
-}
-
-.terminal-select.mini {
-  width: 95px;
-}
-
-.dual-inputs {
-  display: flex;
-  gap: 6px;
-}
-
-.apply-cfg-btn {
-  margin-top: 16px;
-  background: #238636;
-  color: #fff;
-  border: none;
-  align-self: flex-end;
-}
-
-/* 时间控制台 */
-.time-control-card {
-  background: #121824;
-  border: 1px solid #283347;
-  border-radius: 8px;
-  padding: 14px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.tc-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.tc-date-info {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.tc-badge {
-  background: #3b82f6;
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.tc-current-date {
-  font-size: 16px;
-  color: #f0f6fc;
-}
-
-.tc-current-date b {
-  color: #58a6ff;
-  font-family: monospace;
-}
-
-.tc-step-num {
-  font-size: 12px;
-  color: #8b949e;
-}
-
-.tc-finish-badge {
-  font-size: 11px;
-  color: #2ea043;
-  font-weight: 700;
-  background: rgba(46, 160, 67, 0.15);
-  padding: 2px 8px;
-  border-radius: 4px;
-}
-
-.tc-speed-selector {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.speed-lbl {
-  font-size: 12px;
-  color: #8b949e;
-}
-
-.speed-btn {
-  background: #161b22;
-  border: 1px solid #30363d;
-  color: #8b949e;
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.speed-btn.active {
-  background: #238636;
-  color: #ffffff;
-  border-color: #2ea043;
-}
-
-.tc-progress-container {
-  height: 6px;
-  background: #161b22;
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.tc-progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #3b82f6, #00e676);
-  transition: width 0.1s linear;
-}
-
-.tc-buttons-row {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.tc-btn {
-  padding: 7px 16px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  border: 1px solid transparent;
-  transition: all 0.2s;
-}
-
-.play-btn {
-  background: #238636;
-  color: #ffffff;
-}
-
-.play-btn:hover:not(:disabled) {
-  background: #2ea043;
-}
-
-.pause-btn {
-  background: #d29922;
-  color: #161b22;
-}
-
-.step-btn {
-  background: #21262d;
-  color: #c9d1d9;
-  border-color: #30363d;
-}
-
-.step-btn:hover:not(:disabled) {
-  border-color: #58a6ff;
-  color: #58a6ff;
-}
-
-.instant-btn {
-  background: #3b82f6;
-  color: #ffffff;
-}
-
-.instant-btn:hover:not(:disabled) {
-  background: #2563eb;
-}
-
-.reset-btn {
-  background: #21262d;
-  color: #8b949e;
-  border-color: #30363d;
-}
-
-/* 核心盈利指标卡片 */
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-}
-
-.metric-card {
-  background: #121824;
-  border: 1px solid #283347;
-  border-radius: 8px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.metric-card.main {
-  background: #131c2e;
-  border-color: #3b82f6;
-}
-
-.metric-card.highlight {
-  background: #182218;
-  border-color: #2ea043;
-}
-
-.m-title {
-  font-size: 11px;
-  color: #8b949e;
-  font-weight: 600;
-}
-
-.m-val {
-  font-size: 22px;
-  font-weight: 700;
-  font-family: monospace;
-  color: #f0f6fc;
-}
-
-.m-sub {
-  font-size: 11px;
-  color: #8b949e;
-}
-
-.text-up { color: #ff4d4f; }
-.text-down { color: #00e676; }
-.text-warning { color: #eab308; }
-
-/* 图表卡片 */
-.chart-card {
-  background: #121824;
-  border: 1px solid #283347;
-  border-radius: 8px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.chart-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.cch-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #f0f6fc;
-}
-
-.cch-tip {
-  font-size: 12px;
-  color: #8b949e;
-  margin-left: 10px;
-}
-
-.cch-legend {
-  display: flex;
-  gap: 16px;
-  font-size: 12px;
-  color: #c9d1d9;
-}
-
-.leg-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.leg-color {
-  width: 12px;
-  height: 4px;
-  border-radius: 2px;
-}
-
-.leg-color.strategy { background: #58a6ff; }
-.leg-color.benchmark { background: #eab308; }
-
-.equity-chart-box {
-  width: 100%;
-  height: 320px;
-}
-
-/* 明细表格 */
-.details-split-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-}
-
-@media (max-width: 1024px) {
-  .details-split-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.detail-box {
-  background: #121824;
-  border: 1px solid #283347;
-  border-radius: 8px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.detail-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.dh-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #f0f6fc;
-  margin: 0;
-}
-
-.dh-cash {
-  font-size: 12px;
-  color: #58a6ff;
-  font-weight: 600;
-}
-
-.dh-tip {
-  font-size: 11px;
-  color: #8b949e;
-}
-
-.detail-table-wrapper {
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.terminal-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-
-.terminal-table th {
-  background: #0d121c;
-  color: #8b949e;
-  text-align: left;
-  padding: 8px 10px;
-  font-weight: 600;
-  border-bottom: 1px solid #21262d;
-  position: sticky;
-  top: 0;
-}
-
-.terminal-table td {
-  padding: 7px 10px;
-  border-bottom: 1px solid #1c2738;
-  color: #c9d1d9;
-}
-
-.empty-row {
-  text-align: center;
-  padding: 30px !important;
-  color: #8b949e;
-}
-
-.side-badge {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.side-badge.buy {
-  background: rgba(255, 77, 79, 0.2);
-  color: #ff4d4f;
-}
-
-.side-badge.sell {
-  background: rgba(0, 230, 118, 0.2);
-  color: #00e676;
-}
-
-.reason-cell {
-  font-size: 11px;
-  color: #8b949e;
-}
-
-.time-cell {
-  font-family: monospace;
-  font-size: 11px;
-}
-
-/* 对比弹窗 */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.8);
-  backdrop-filter: blur(5px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.compare-modal-card {
-  width: 900px;
-  max-width: 94vw;
-  height: 600px;
-  background: #0e1420;
-  border: 1px solid #2b3d5b;
-  border-radius: 12px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.9);
-}
-
-.cm-header {
-  height: 50px;
-  background: #141c2c;
-  border-bottom: 1px solid #212d40;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 20px;
-}
-
-.cm-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: #f0f6fc;
-}
-
-.close-btn {
-  background: transparent;
-  border: none;
-  color: #8b949e;
-  font-size: 18px;
-  cursor: pointer;
-}
-
-.cm-body {
-  flex: 1;
-  padding: 16px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.compare-loading {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  color: #8b949e;
-}
-
-.spinner {
-  width: 30px;
-  height: 30px;
-  border: 3px solid #30363d;
-  border-top-color: #58a6ff;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.compare-content {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  height: 100%;
-}
-
-.leaderboard-box {
-  background: #121824;
-  border: 1px solid #212d40;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.compare-chart-canvas {
-  width: 100%;
-  height: 320px;
-}
+.replay-range { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 20px; }
+.replay-range input { background: #101722; color: #dbe5f4; border: 1px solid #33435b; padding: 8px; border-radius: 6px; }
+.decision-evidence { margin-bottom: 20px; padding: 20px; color: #bac5d5; }
+.decision-evidence p { line-height: 1.7; margin: 12px 0; }
+.evidence-scroll { overflow-x: auto; }
+.evidence-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
+.evidence-table th, .evidence-table td { padding: 12px; border-bottom: 1px solid #263247; min-width: 110px; }
+.evidence-table td:last-child { min-width: 250px; line-height: 1.7; }
 </style>

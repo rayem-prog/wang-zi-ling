@@ -62,6 +62,8 @@
         </button>
       </div>
 
+      <p v-if="holdingsData.valuation_message" class="view-subtitle">{{ holdingsData.valuation_message }}</p>
+      <p v-if="holdingsData.valuation_pending" class="view-subtitle">正在补齐持仓收盘行情，完成后自动更新盈亏…</p>
       <!-- 快速录入表单 -->
       <div v-if="showAddPos" class="add-pos-form">
         <div style="flex: 2;">
@@ -89,7 +91,7 @@
               <th width="120">名称</th>
               <th width="100">持仓股数</th>
               <th width="100">成本价</th>
-              <th width="100">最新价</th>
+              <th width="150">估值价格 / 日期</th>
               <th width="110">浮动盈亏</th>
               <th width="120">风格分类</th>
               <th>系统诊断建议</th>
@@ -105,9 +107,12 @@
               <td>{{ pos.name }}</td>
               <td class="num-col">{{ Number(pos.shares).toLocaleString() }}</td>
               <td class="num-col">¥{{ Number(pos.cost).toFixed(2) }}</td>
-              <td class="num-col">¥{{ Number(pos.price || pos.cost).toFixed(2) }}</td>
+              <td class="num-col" :title="pos.price_reason || pos.price_source">
+                {{ pos.price == null ? '未核实' : '¥' + Number(pos.price).toFixed(2) }}
+                <div v-if="pos.price != null" class="view-subtitle">{{ pos.price_basis === 'close' ? '收盘估值' : '报价' }} · {{ pos.trade_date }}</div>
+              </td>
               <td :class="(pos.pnl_pct || 0) >= 0 ? 'text-up' : 'text-down'">
-                {{ ((pos.pnl_pct || 0) * 100).toFixed(2) }}%
+                {{ pos.pnl_pct == null ? '未核实' : (pos.pnl_pct * 100).toFixed(2) + '%' }}
               </td>
               <td>
                 <span class="style-tag" :class="pos.style === '题材' ? 'theme' : 'value'">
@@ -163,7 +168,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api } from '../api'
 import StockSearchInput from '../components/StockSearchInput.vue'
 
@@ -173,6 +178,27 @@ const holdingsData = ref({ positions: [], diagnostics: [], warnings: [] })
 const paperData = ref({})
 const showAddPos = ref(false)
 const searchKeyword = ref('')
+let valuationTimer = null
+let disposed = false
+
+function pollValuation() {
+  clearTimeout(valuationTimer)
+  if (disposed || !holdingsData.value.valuation_pending) return
+  valuationTimer = setTimeout(async () => {
+    try {
+      const result = await api.getHoldings()
+      if (!disposed) holdingsData.value = result
+    } catch (err) {
+      console.error('Failed to refresh holdings valuation:', err)
+    }
+    pollValuation()
+  }, 2000)
+}
+
+onUnmounted(() => {
+  disposed = true
+  clearTimeout(valuationTimer)
+})
 
 const newPos = ref({
   code: '',
@@ -199,6 +225,7 @@ async function loadAll() {
     ])
     macroData.value = mRes || {}
     holdingsData.value = hRes || { positions: [], diagnostics: [], warnings: [] }
+    pollValuation()
     paperData.value = pRes || {}
   } catch (err) {
     console.error('Failed to load macro & holdings:', err)
@@ -254,6 +281,9 @@ async function deletePosition(code) {
 onMounted(() => {
   loadAll()
 })
+
+const refresh = loadAll
+defineExpose({ refresh })
 </script>
 
 <style scoped>

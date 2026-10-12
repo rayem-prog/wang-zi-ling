@@ -246,18 +246,8 @@ def tab_daemon_and_settings(settings: Settings) -> None:
 
 
 def main() -> None:
-    settings = load_settings()
-    t1, t2, t3, t4, t5 = st.tabs(["⚡ 信号看盘", "📋 指令单", "🛡️ 持仓与宏观", "📖 每日复盘", "⚙️ 守护与设置"])
-    with t1:
-        tab_signals(settings)
-    with t2:
-        tab_orders(settings)
-    with t3:
-        tab_holdings_and_macro(settings)
-    with t4:
-        tab_recap(settings)
-    with t5:
-        tab_daemon_and_settings(settings)
+    st.info("旧看板入口已退出支持。请使用统一 StockPilot 终端查看经过数据门禁检查的信号与指令。")
+    st.link_button("打开 StockPilot 终端", "http://localhost:8888")
 
 
 if __name__ == "__main__":

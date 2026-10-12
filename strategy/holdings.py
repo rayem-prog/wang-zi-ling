@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 
 import pandas as pd
+from strategy import risk
 
 THEME_KEYWORDS = ("科技", "人工智能", "AI", "机器人", "芯片", "半导体", "新能源", "军工", "医药", "软件", "通信", "传媒")
 
@@ -54,9 +55,13 @@ def diagnose_positions(db_path, quotes: pd.DataFrame, rec: pd.DataFrame, setting
     df = pos.merge(q, on="code", how="left")
     df["pnl"] = (df["price"] - df["cost"]) * df["shares"]
     df["pnl_pct"] = df["price"] / df["cost"] - 1
-    equity = max(float(settings.account.cash), 1e-6)
+    equity = max(float(settings.account.cash) + (df["shares"] * df["price"]).sum(), 1e-6)
+    policy = risk.current_policy(settings)
     df["current_weight"] = df["shares"] * df["price"] / equity
-    rec_cols = [c for c in ["code", "score_blend", "rating"] if c in rec.columns]
+    if df['price'].isna().any():
+        # Partial valuations cannot establish total equity or portfolio weights.
+        df['current_weight'] = float('nan')
+    rec_cols = [c for c in ["code", "score_blend", "rating", "suggested_weight"] if c in rec.columns]
     if rec_cols:
         df = df.merge(rec[rec_cols], on="code", how="left")
     if "rating" in df.columns:
@@ -65,14 +70,28 @@ def diagnose_positions(db_path, quotes: pd.DataFrame, rec: pd.DataFrame, setting
         df["rating"] = "中性"
     actions = []
     for _, r in df.iterrows():
-        score = r["score_blend"] if pd.notna(r.get("score_blend", float("nan"))) else 40.0
-        if score >= 80:
-            if r["current_weight"] < settings.risk.max_single_position:
+        raw_score = r.get("score_blend", float("nan"))
+        if not risk.positive(r.get("price")) or not risk.positive(r.get("cost")):
+            actions.append(("数据不足", "缺少有效现价或成本，无法核实盈亏与仓位"))
+            continue
+        if pd.isna(raw_score):
+            action = "数据不足"
+            reason = "当前交易日没有可核实的推荐评分"
+            actions.append((action, reason))
+            continue
+        score = float(raw_score)
+        if not risk.buying_allowed(policy) and score >= 60:
+            action = "持有"
+            reason = "宏观防守档禁止买入与加仓"
+        elif score >= 80:
+            target = min(settings.risk.max_single_position,
+                         risk.positive(r.get("suggested_weight")) if "suggested_weight" in df else settings.risk.max_single_position)
+            if r["current_weight"] < target:
                 action = "加仓"
-                reason = "信号强烈看多且未超配"
+                reason = "信号强烈看多且尚未达到目标仓位"
             else:
                 action = "持有"
-                reason = "信号强烈看多但已超配，等待回踩或减仓后加"
+                reason = "已达到或超过目标仓位，不再追加"
         elif score >= 60:
             action = "持有"
             reason = "信号看多，继续持有观察"

@@ -24,60 +24,9 @@
           </div>
         </div>
 
-        <!-- 5 维因子参数拆解 -->
         <div class="attr-section">
-          <h4 class="sec-title">📊 5 维多因子打分拆解</h4>
-          <div class="factors-grid">
-            <div class="factor-bar-item">
-              <div class="fb-top">
-                <span class="fb-name">动量与趋势强度</span>
-                <span class="fb-val">{{ stock.why_recommended?.factors?.momentum || 88 }}分</span>
-              </div>
-              <div class="fb-track">
-                <div class="fb-fill mom" :style="{ width: (stock.why_recommended?.factors?.momentum || 88) + '%' }"></div>
-              </div>
-            </div>
-
-            <div class="factor-bar-item">
-              <div class="fb-top">
-                <span class="fb-name">均线多头共振</span>
-                <span class="fb-val">{{ stock.why_recommended?.factors?.trend || 92 }}分</span>
-              </div>
-              <div class="fb-track">
-                <div class="fb-fill trend" :style="{ width: (stock.why_recommended?.factors?.trend || 92) + '%' }"></div>
-              </div>
-            </div>
-
-            <div class="factor-bar-item">
-              <div class="fb-top">
-                <span class="fb-name">主力资金量能配合</span>
-                <span class="fb-val">{{ stock.why_recommended?.factors?.volume || 85 }}分</span>
-              </div>
-              <div class="fb-track">
-                <div class="fb-fill vol" :style="{ width: (stock.why_recommended?.factors?.volume || 85) + '%' }"></div>
-              </div>
-            </div>
-
-            <div class="factor-bar-item">
-              <div class="fb-top">
-                <span class="fb-name">双模型加权共振度</span>
-                <span class="fb-val">{{ stock.why_recommended?.factors?.model_synergy || 90 }}分</span>
-              </div>
-              <div class="fb-track">
-                <div class="fb-fill syn" :style="{ width: (stock.why_recommended?.factors?.model_synergy || 90) + '%' }"></div>
-              </div>
-            </div>
-
-            <div class="factor-bar-item">
-              <div class="fb-top">
-                <span class="fb-name">下行风险安全垫</span>
-                <span class="fb-val">{{ stock.why_recommended?.factors?.risk_safety || 80 }}分</span>
-              </div>
-              <div class="fb-track">
-                <div class="fb-fill risk" :style="{ width: (stock.why_recommended?.factors?.risk_safety || 80) + '%' }"></div>
-              </div>
-            </div>
-          </div>
+          <h4 class="sec-title">📊 因子贡献</h4>
+          <p class="rationale-box">当前没有可核实的因子贡献数据。</p>
         </div>
 
         <!-- 目标与交易建议 -->
@@ -89,16 +38,16 @@
               <span class="p-main">¥{{ stock.price?.toFixed(2) }}</span>
             </div>
             <div class="param-box target">
-              <span class="p-sub">目标止盈 (+15%)</span>
+              <span class="p-sub">配置止盈价</span>
               <span class="p-main take">¥{{ stock.why_recommended?.target_price?.toFixed(2) }}</span>
             </div>
             <div class="param-box stop">
-              <span class="p-sub">硬止损线 (-5%)</span>
+              <span class="p-sub">配置止损价</span>
               <span class="p-main stop">¥{{ stock.why_recommended?.stop_loss_price?.toFixed(2) }}</span>
             </div>
             <div class="param-box">
               <span class="p-sub">建议持股周期</span>
-              <span class="p-main">{{ stock.why_recommended?.holding_period || '3~5个交易日' }}</span>
+              <span class="p-main">{{ stock.why_recommended?.holding_period || '未预测' }}</span>
             </div>
           </div>
         </div>

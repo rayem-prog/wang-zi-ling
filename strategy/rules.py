@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 import pandas as pd
 
 
@@ -36,7 +37,7 @@ def optimize_rules_formula(
     """
     根据当日市场数据与宏观温度计档位，动态自适应优化多因子规则打分算法：
     - DEFENSE / BEAR (防御防守档): 抑制高位追高动量，大幅提升布林下轨与低吸反弹权重；
-    - BULL (多头进攻档): 提高均线突破与放量动量加分，放宽超买惩罚；
+    - ATTACK / BULL (多头进攻档): 提高均线突破与放量动量加分，放宽超买惩罚；
     - NEUTRAL (震荡中枢档): 箱体高抛低吸平衡。
     """
     cfg = RuleFormulaConfig()
@@ -54,7 +55,7 @@ def optimize_rules_formula(
         cfg.pen_rsi_overbought = 16.0  # 超买扣分加码
         cfg.regime_name = "防守控撤优化公式 (Adaptive Defense Mode)"
         cfg.regime_desc = "已根据今日 DEFENSE 防御档自动调优：下调高位突破动量权重 (-47%)，提升布林下轨与超跌反弹加权 (+140%)，降低追高回撤风险。"
-    elif stance == "bull":
+    elif stance in ("attack", "bull"):
         # 进攻优化算法：顺势主升浪放宽超买限制
         cfg.w_trend_ma5 = 20.0        # 趋势突破加权 +33%
         cfg.w_trend_ma20 = 14.0
@@ -81,15 +82,25 @@ def optimize_rules_formula(
     return cfg, audit
 
 
+def _finite_value(value, default: float) -> float:
+    """Preserve zero; missing and nonfinite numeric inputs use a neutral default."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number if isfinite(number) else default
+
+
 def _score_row(f: dict, cfg: RuleFormulaConfig | None = None) -> float:
     c = cfg or RuleFormulaConfig()
     s = 50.0
-    s += c.w_trend_ma5 if f.get("ma5_gt_ma20") else -c.pen_trend_ma5
-    s += c.w_trend_ma20 if f.get("ma20_gt_ma60") else -c.pen_trend_ma20
-    s += c.w_ret5 if (f.get("ret_5") or 0) > 0 else -c.pen_ret5
-    s += c.w_ret20 if (f.get("ret_20") or 0) > 0 else -c.pen_ret20
+    s += c.w_trend_ma5 if _finite_value(f.get("ma5_gt_ma20"), 0.) else -c.pen_trend_ma5
+    s += c.w_trend_ma20 if _finite_value(f.get("ma20_gt_ma60"), 0.) else -c.pen_trend_ma20
+    s += c.w_ret5 if _finite_value(f.get("ret_5"), 0.) > 0 else -c.pen_ret5
+    s += c.w_ret20 if _finite_value(f.get("ret_20"), 0.) > 0 else -c.pen_ret20
 
-    vr = f.get("vol_ratio_5", 1.0) or 1.0
+    # Feature stores volume / rolling mean - 1; thresholds are raw multiples.
+    vr = 1.0 + _finite_value(f.get("vol_ratio_5"), 0.)
     if 1.0 <= vr <= 2.0:
         s += c.w_vol_normal
     elif vr > 2.0:
@@ -97,7 +108,7 @@ def _score_row(f: dict, cfg: RuleFormulaConfig | None = None) -> float:
     elif vr < 0.8:
         s -= c.pen_vol_shrink
 
-    rsi = f.get("rsi_14", 50.0) or 50.0
+    rsi = _finite_value(f.get("rsi_14"), 50.0)
     if 45 <= rsi <= 65:
         s += c.w_rsi_neutral
     elif rsi > 75:
@@ -105,7 +116,7 @@ def _score_row(f: dict, cfg: RuleFormulaConfig | None = None) -> float:
     elif rsi < 25:
         s += c.w_rsi_oversold
 
-    bp = f.get("boll_pos", 0.5) or 0.5
+    bp = _finite_value(f.get("boll_pos"), 0.5)
     if bp < 0.2:
         s += c.w_boll_lower
     elif bp > 0.9:
@@ -118,5 +129,5 @@ def score_engine_b(features: pd.DataFrame, config: RuleFormulaConfig | None = No
     rows = []
     for _, r in features.iterrows():
         rows.append({"code": r["code"], "date": r["date"], "score_b": round(_score_row(r, config), 2)})
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=['code', 'date', 'score_b'])
 

@@ -20,7 +20,7 @@
       <span class="banner-icon">⚠️</span>
       <div class="banner-text">
         <b>交易纪律守则：</b>
-        <span>开盘若跳空高开 ≥ 9.8% 涨停则严禁追高，自动放弃买入；价格回踩进入指定区间后手动下单；硬止损 -5%，目标止盈 +15%。</span>
+        <span>开盘若跳空高开 ≥ 9.8% 涨停则严禁追高，自动放弃买入；价格回踩进入指定区间后手动下单；止损止盈按风控配置生成；防守档禁止买入与加仓。</span>
       </div>
     </div>
 
@@ -34,8 +34,8 @@
             <th width="120">名称</th>
             <th width="100">建议股数</th>
             <th width="140">买入/卖出区间</th>
-            <th width="110">硬止损 (-5%)</th>
-            <th width="110">目标止盈 (+15%)</th>
+            <th width="110">硬止损价</th>
+            <th width="110">目标止盈价</th>
             <th>风控提示与说明</th>
           </tr>
         </thead>
@@ -49,19 +49,19 @@
             <td>
               <span
                 class="side-tag"
-                :class="ord.side === '买入' ? 'buy' : 'sell'"
+                :class="['买入', '加仓'].includes(ord.action) ? 'buy' : 'sell'"
               >
-                {{ ord.side || '买入' }}
+                {{ ord.action || '--' }}
               </span>
             </td>
             <td class="code-col"><b>{{ ord.code }}</b></td>
             <td>{{ ord.name || '--' }}</td>
             <td class="num-col">{{ ord.shares ? Number(ord.shares).toLocaleString() : '--' }}</td>
             <td class="range-col">
-              <span v-if="ord.price_low && ord.price_high">
-                ¥{{ Number(ord.price_low).toFixed(2) }} ~ ¥{{ Number(ord.price_high).toFixed(2) }}
+              <span v-if="ord.limit_low && ord.limit_high">
+                ¥{{ Number(ord.limit_low).toFixed(2) }} ~ ¥{{ Number(ord.limit_high).toFixed(2) }}
               </span>
-              <span v-else-if="ord.target_price">¥{{ Number(ord.target_price).toFixed(2) }}</span>
+              <span v-else-if="ord.price_ref">¥{{ Number(ord.price_ref).toFixed(2) }}</span>
               <span v-else>--</span>
             </td>
             <td class="stop-loss">
@@ -71,7 +71,7 @@
               {{ ord.take_profit ? '¥' + Number(ord.take_profit).toFixed(2) : '--' }}
             </td>
             <td class="note-col">
-              <span class="warning-pill">{{ ord.note || '跳空≥9.8%涨停不追' }}</span>
+              <span class="warning-pill">{{ [ord.reason, ord.warning].filter(Boolean).join('；') || '--' }}</span>
             </td>
           </tr>
         </tbody>
@@ -103,6 +103,9 @@ async function loadOrders() {
 onMounted(() => {
   loadOrders()
 })
+
+const refresh = loadOrders
+defineExpose({ refresh })
 </script>
 
 <style scoped>

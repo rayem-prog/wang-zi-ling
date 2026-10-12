@@ -9,16 +9,19 @@ import logging
 from typing import Set
 
 from fastapi import WebSocket, WebSocketDisconnect
+from data.trading_calendar import closure_kind
 
 logger = logging.getLogger(__name__)
 
 
-def get_market_trading_status() -> dict:
+def get_market_trading_status(now: dt.datetime | None = None) -> dict:
     """计算当前市场时段状态。"""
-    now = dt.datetime.now()
-    weekday = now.weekday()
-    if weekday >= 5:
+    now = now or dt.datetime.now()
+    closed = closure_kind(now.date())
+    if closed == "weekend":
         return {"is_trading": False, "phase": "weekend", "label": "周末休市"}
+    if closed == "exchange_holiday":
+        return {"is_trading": False, "phase": "exchange_holiday", "label": "交易所节假日休市"}
 
     t = now.time()
     t_0915 = dt.time(9, 15)

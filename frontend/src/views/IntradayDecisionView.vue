@@ -13,6 +13,15 @@
       </div>
     </div>
 
+    <div v-if="loadError || decisions.errors?.length" class="data-notice" role="alert">
+      {{ [loadError, ...(decisions.errors || [])].filter(Boolean).join('；') }}
+    </div>
+
+    <div class="data-notice" role="status">
+      决策更新时间 {{ decisions.summary?.timestamp || decisions.timestamp || '未知' }}；
+      {{ decisions.stale ? '行情已过期，指令暂停' : (decisions.summary?.stale_count > 0 ? '陈旧报价指令已暂停' : '逐证券检查报价日期与时间') }}
+      <span v-if="decisions.summary?.stale_count">；{{ decisions.summary.stale_count }} 只报价陈旧</span>
+    </div>
     <!-- 决策统计横幅 -->
     <div class="summary-cards">
       <div class="summary-card" :class="{ alert: (decisions.summary?.urgent_count || 0) > 0 }">
@@ -76,13 +85,15 @@
               <td class="code-col"><b>{{ item.code }}</b></td>
               <td><b>{{ item.name }}</b></td>
               <td class="num-col">¥{{ item.cost?.toFixed(2) }}</td>
-              <td class="num-col"><b>¥{{ item.price?.toFixed(2) }}</b></td>
+              <td class="num-col"><b>{{ item.price == null ? '--' : `¥${item.price.toFixed(2)}` }}</b>
+                <small class="quote-detail">{{ item.price_stale ? '陈旧报价' : '报价' }} · {{ item.trade_date || '日期未知' }} {{ item.quote_time || '' }} · {{ item.price_source || '来源未知' }}</small>
+              </td>
               <td :class="item.today_pct >= 0 ? 'text-up' : 'text-down'">
-                {{ item.today_pct >= 0 ? '+' : '' }}{{ item.today_pct?.toFixed(2) }}%
+                {{ item.today_pct == null ? '--' : `${item.today_pct >= 0 ? '+' : ''}${item.today_pct.toFixed(2)}%` }}
               </td>
               <td class="pnl-col">
                 <span class="pnl-val" :class="item.pnl_pct >= 0 ? 'text-up' : 'text-down'">
-                  {{ item.pnl_pct >= 0 ? '+' : '' }}{{ (item.pnl_pct * 100)?.toFixed(2) }}%
+                  {{ item.pnl_pct == null ? '--' : `${item.pnl_pct >= 0 ? '+' : ''}${(item.pnl_pct * 100).toFixed(2)}%` }}
                 </span>
               </td>
               <td>
@@ -119,6 +130,7 @@
             <span class="t-badge">{{ trig.badge }}</span>
           </div>
           <span class="t-msg">{{ trig.message }}</span>
+          <small class="quote-detail">{{ trig.price_stale ? '陈旧报价' : '报价' }} · {{ trig.trade_date || '日期未知' }} {{ trig.quote_time || '' }} · {{ trig.price_source || '来源未知' }}</small>
         </div>
       </div>
     </div>
@@ -192,40 +204,59 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { api } from '../api'
 import KLineModal from '../components/KLineModal.vue'
 
 const loading = ref(false)
+const loadError = ref('')
 const decisions = ref({ holdings_decisions: [], orders_triggers: [], summary: {} })
 const radarList = ref([])
 
 const klineVisible = ref(false)
 const selectedStock = ref(null)
 
-async function loadData() {
-  loading.value = true
-  try {
-    const [dRes, rRes] = await Promise.all([
-      api.getIntradayDecisions(),
-      api.getIntradayRadar()
-    ])
-    decisions.value = dRes || { holdings_decisions: [], orders_triggers: [], summary: {} }
-    radarList.value = rRes || []
-  } catch (err) {
-    console.error('Failed to load intraday decisions:', err)
-  } finally {
-    loading.value = false
-  }
+let refreshFlight = null
+let refreshTimer = null
+let active = true
+
+function scheduleRefresh() {
+  clearTimeout(refreshTimer)
+  refreshTimer = null
+  if (active) refreshTimer = setTimeout(loadData, 15000)
 }
 
-async function loadRadar() {
-  try {
-    const res = await api.getIntradayRadar()
-    radarList.value = res || []
-  } catch (err) {
-    console.error('Failed to reload radar:', err)
-  }
+function loadData() {
+  if (refreshFlight) return refreshFlight
+  loading.value = true
+  loadError.value = ''
+  refreshFlight = Promise.allSettled([
+    api.getIntradayDecisions(), api.getIntradayRadar()
+  ]).then(([dRes, rRes]) => {
+    if (!active) return
+    decisions.value = dRes.status === 'fulfilled' ? dRes.value : { holdings_decisions: [], orders_triggers: [], summary: {}, stale: true }
+    radarList.value = rRes.status === 'fulfilled' ? rRes.value : []
+    loadError.value = [dRes, rRes].filter(result => result.status === 'rejected')
+      .map(result => result.reason?.response?.data?.detail || result.reason?.message || '行情读取失败').join('；')
+  }).finally(() => {
+    loading.value = false
+    refreshFlight = null
+    scheduleRefresh()
+  })
+  return refreshFlight
+}
+
+const loadRadar = loadData
+const refresh = loadData
+function activate() {
+  active = true
+  clearTimeout(refreshTimer)
+  loadData()
+}
+function deactivate() {
+  active = false
+  clearTimeout(refreshTimer)
+  refreshTimer = null
 }
 
 function openKline(stock) {
@@ -233,12 +264,21 @@ function openKline(stock) {
   klineVisible.value = true
 }
 
-onMounted(() => {
-  loadData()
-})
+onMounted(activate)
+onActivated(activate)
+onDeactivated(deactivate)
+onUnmounted(deactivate)
+defineExpose({ refresh })
 </script>
 
 <style scoped>
+.quote-detail { display: block; font-size: 10px; color: #d29922; margin-top: 4px; }
+.data-notice {
+  padding: 12px;
+  color: #f0c674;
+  background: #332b1b;
+  border: 1px solid #735b2b;
+}
 .view-container {
   display: flex;
   flex-direction: column;

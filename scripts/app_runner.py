@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -12,6 +13,9 @@ import webbrowser
 from pathlib import Path
 
 import uvicorn
+import requests
+
+from scripts import daemon_control
 
 
 def parse_args():
@@ -24,30 +28,42 @@ def parse_args():
 
 
 def ensure_port_available(port: int):
-    """检测并自动释放被占用的端口，防止 [Errno 48] address already in use。"""
+    """Report an occupied port without sending signals to unrelated processes."""
+    with socket.socket() as probe:
+        try:
+            probe.bind(("0.0.0.0", port))
+        except OSError as exc:
+            raise RuntimeError(f"端口 {port} 已被占用，请关闭占用服务或使用 --port 选择其他端口") from exc
+
+
+def existing_app_url(port: int, root_dir: Path) -> str | None:
+    """确认监听进程属于同一目录，且 HTTP 服务确为 StockPilot，才复用。"""
+    url = f"http://127.0.0.1:{port}"
     try:
-        cmd = f"lsof -ti :{port}"
-        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        out = res.stdout.strip()
-        if out:
-            pids = [int(p) for p in out.split() if p.isdigit()]
-            for pid in pids:
-                if pid == os.getpid():
-                    continue
-                print(f"🔄 检测到端口 {port} 已被旧进程占用 (PID: {pid})，正在自动清理释放...")
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                    time.sleep(0.4)
-                except ProcessLookupError:
-                    pass
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            time.sleep(0.5)
-            print(f"  ✓ 端口 {port} 已成功清理并恢复就绪")
-    except Exception as e:
-        print(f"⚠️ 检查端口占用时提示: {e}")
+        listeners = subprocess.run(
+            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+            capture_output=True, text=True, timeout=2, check=True,
+        ).stdout.split()
+        if not listeners or not all(pid.isdigit() for pid in listeners):
+            return None
+        for pid in set(listeners):
+            cwd = subprocess.run(
+                ["lsof", "-a", "-p", pid, "-d", "cwd", "-Fn"],
+                capture_output=True, text=True, timeout=2, check=True,
+            ).stdout.splitlines()
+            if "n" + str(root_dir.resolve()) not in cwd:
+                return None
+        with requests.Session() as session:
+            session.trust_env = False
+            response = session.get(url + "/openapi.json", timeout=3)
+            response.raise_for_status()
+            schema = response.json()
+        if (schema.get("info", {}).get("title") == "StockPilot v2 API"
+                and "/api/status" in schema.get("paths", {})):
+            return url
+    except (OSError, subprocess.SubprocessError, requests.RequestException, ValueError):
+        pass
+    return None
 
 
 def main():
@@ -60,20 +76,25 @@ def main():
     print(f"📁 工作根目录: {root_dir}")
     print("=" * 60)
 
-    # 启动前自动确保端口空闲可用
-    ensure_port_available(args.port)
+    try:
+        ensure_port_available(args.port)
+    except RuntimeError as exc:
+        existing_url = existing_app_url(args.port, root_dir)
+        if existing_url:
+            print(f"✓ StockPilot 已在运行，打开现有页面：{existing_url}")
+            if not args.no_browser:
+                webbrowser.open(existing_url)
+            return 0
+        print(f"❌ {exc}")
+        return 2
 
-    daemon_proc = None
+    daemon_token = None
 
     def cleanup(signum=None, frame=None):
         print("\n🛑 收到退出信号，正在安全停止后台子服务...")
-        if daemon_proc and daemon_proc.poll() is None:
-            daemon_proc.terminate()
-            try:
-                daemon_proc.wait(timeout=3)
-            except Exception:
-                daemon_proc.kill()
-            print("  ✓ 盘中守护进程已关停")
+        if daemon_token:
+            result = daemon_control.stop_daemon(root_dir, expected_token=daemon_token)
+            print(f"  ✓ 盘中守护进程: {result['status']}")
         print("  ✓ StockPilot 服务已安全退出。祝您投资顺利！")
         sys.exit(0)
 
@@ -82,18 +103,11 @@ def main():
 
     # 1. 启动盘中守护进程（后台非阻塞）
     if not args.no_daemon:
-        try:
-            subprocess.run("pkill -f 'scripts.intraday_daemon' 2>/dev/null || true", shell=True)
-            time.sleep(0.3)
-        except Exception:
-            pass
-
         print("📡 正在启动盘中风险监控守护进程 (intraday_daemon)...")
-        daemon_proc = subprocess.Popen(
-            [sys.executable, "-m", "scripts.intraday_daemon"],
-            cwd=str(root_dir),
-        )
-        print(f"  ✓ 守护进程已拉起 (PID: {daemon_proc.pid})")
+        result = daemon_control.start_daemon(root_dir)
+        if result["status"] == "started":
+            daemon_token = result["token"]
+        print(f"  ✓ 守护进程: {result['status']} (PID: {result.get('pid')})")
     else:
         print("⚠️ 跳过自动启动守护进程 (--no-daemon)")
 
@@ -129,4 +143,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main() or 0)

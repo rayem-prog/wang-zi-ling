@@ -1,0 +1,182 @@
+/* 自定义价格滑块/区间 */
+.custom-range-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #121822;
+  border: 1px dashed #30363d;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 12px;
+}
+
+.cr-label {
+  color: #8b949e;
+}
+
+.range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.range-input {
+  background: #161b22;
+  border: 1px solid #30363d;
+  color: #f0f6fc;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  width: 90px;
+  outline: none;
+}
+
+.range-sep {
+  color: #8b949e;
+}
+
+.reset-range-btn {
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.reset-range-btn:hover {
+  color: #f0f6fc;
+}
+
+.cr-tip {
+  color: #58a6ff;
+  font-weight: 600;
+}
+
+/* 统计卡片 */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.stat-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-card.highlight {
+  border-color: #388bfd;
+  background: #162030;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: #8b949e;
+}
+
+.stat-val {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f0f6fc;
+}
+
+.stat-val.score {
+  font-family: monospace;
+  color: #58a6ff;
+}
+
+.stat-val.cheapest {
+  font-size: 13px;
+  color: #00e676;
+}
+
+/* 推荐表格控制顶栏 */
+.table-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  background: #121824;
+  border: 1px solid #30363d;
+  border-radius: 8px 8px 0 0;
+  padding: 10px 16px;
+  border-bottom: none;
+}
+
+.th-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.th-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f0f6fc;
+}
+
+.th-count {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.th-count b {
+  color: #58a6ff;
+}
+
+.th-drag-hint {
+  font-size: 11px;
+  color: #eab308;
+  background: rgba(234, 179, 8, 0.1);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.th-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-size-lbl {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.page-size-btns {
+  display: flex;
+  gap: 4px;
+}
+
+.ps-btn {
+  background: #161b22;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ps-btn.active {
+  background: #1f6feb;
+  color: #ffffff;
+  border-color: #388bfd;
+  font-weight: 600;
+}
+
+.ps-btn:hover:not(.active) {
+  color: #f0f6fc;
+  border-color: #58a6ff;
+}

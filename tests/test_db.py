@@ -1,6 +1,7 @@
 import datetime as dt
 
 import pandas as pd
+import pytest
 
 from data import db
 
@@ -33,6 +34,16 @@ def test_bars_roundtrip(tmp_path):
     assert list(out.columns) == ["code", "date", "open", "high", "low", "close", "volume", "amount"]
     assert out["date"].iloc[0] == dt.date(2024, 1, 1)
     assert out["close"].tolist() == [10.5, 11.5, 12.5]
+
+
+def test_simulated_prices_cannot_enter_real_market_storage(tmp_path):
+    path = str(tmp_path / "market.db")
+    db.init_db(path)
+    with pytest.raises(ValueError, match="模拟数据"):
+        db.save_bars(path, "000001", _bars(), source="simulation")
+    assert db.load_bars(path, "000001").empty
+    with pytest.raises(ValueError, match="非 OHLC"):
+        db.save_minute_bars(path, "000001", pd.DataFrame(), source="tencent_price_line")
 
 
 def test_upsert_and_freshness(tmp_path):
@@ -72,7 +83,7 @@ def test_minute_bars_roundtrip(tmp_path):
     assert n == 3
     # Check deduplication
     n2 = db.save_minute_bars(path, "000001", mbars)
-    assert n2 == 3
+    assert n2 == 0  # duplicate rows are preserved, not counted as new data
 
     # Load all
     loaded = db.load_minute_bars(path, "000001")
@@ -127,4 +138,3 @@ def test_macro_history(tmp_path):
     assert len(df) == 1
     assert df.iloc[0]["score"] == 0.45
     assert df.iloc[0]["stance"] == "attack"
-

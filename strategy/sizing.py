@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 
 from strategy.signals import rating
+from strategy import risk
 
 
 def target_weight(score: float, vol_20: float, median_vol: float, settings) -> float:
@@ -24,14 +25,20 @@ def stop_and_take(price: float, settings) -> tuple[float, float]:
     return round(price * (1 - settings.risk.stop_loss), 2), round(price * (1 + settings.risk.take_profit), 2)
 
 
-def compute_plan(rec: pd.DataFrame, median_vol: float, settings, macro_res=None) -> pd.DataFrame:
+def compute_plan(rec: pd.DataFrame, median_vol: float, settings, macro_res=None, current_holdings=None) -> pd.DataFrame:
     out = rec.copy()
     if out.empty:
         return out
     if "vol_20" not in out.columns:
         out["vol_20"] = median_vol
 
-    if macro_res is not None and not getattr(macro_res, "allow_new_buy", True):
+    equity = max(settings.account.cash, 0)
+    if current_holdings is not None and not current_holdings.empty:
+        prices = {str(r["code"]).zfill(6): risk.positive(r.get("price")) for _, r in out.iterrows()}
+        equity += sum(risk.positive(h.get("shares")) * (prices.get(str(h["code"]).zfill(6)) or risk.positive(h.get("price")) or risk.positive(h.get("cost")))
+                      for _, h in current_holdings.iterrows())
+    macro_res = macro_res or risk.current_policy(settings)
+    if not risk.buying_allowed(macro_res):
         out["suggested_weight"] = 0.0
         out["suggested_amount"] = 0.0
     else:
@@ -48,7 +55,7 @@ def compute_plan(rec: pd.DataFrame, median_vol: float, settings, macro_res=None)
             weights = [round(w * scale, 4) for w in weights]
 
         out["suggested_weight"] = weights
-        out["suggested_amount"] = (out["suggested_weight"] * settings.account.cash).round(0)
+        out["suggested_amount"] = (out["suggested_weight"] * equity).round(0)
 
     stops, takes = zip(*[stop_and_take(p, settings) for p in out["price"]])
     out["stop_loss"] = stops

@@ -1,0 +1,399 @@
+/* 表格本体与抓手拖拽 */
+.table-wrapper {
+  background: #161b22;
+  border-left: 1px solid #30363d;
+  border-right: 1px solid #30363d;
+  overflow-x: auto;
+  cursor: grab;
+  position: relative;
+}
+
+.table-wrapper.is-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.terminal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+
+.terminal-table th {
+  background: #121822;
+  color: #8b949e;
+  padding: 11px 12px;
+  font-weight: 600;
+  border-bottom: 1px solid #30363d;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.terminal-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #21262d;
+  color: #c9d1d9;
+}
+
+/* 推荐表格底栏与翻页 */
+.table-footer-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: #121824;
+  border: 1px solid #30363d;
+  border-radius: 0 0 8px 8px;
+  padding: 10px 16px;
+  border-top: 1px solid #21262d;
+}
+
+.tf-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tf-stat {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.tf-stat b {
+  color: #58a6ff;
+}
+
+.tf-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.page-nav-btn {
+  background: #161b22;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.page-nav-btn:hover:not(:disabled) {
+  border-color: #58a6ff;
+  color: #58a6ff;
+}
+
+.page-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-nav-btn.page-num.active {
+  background: #1f6feb;
+  color: #ffffff;
+  border-color: #388bfd;
+  font-weight: 700;
+}
+
+.all-shown-tip {
+  font-size: 12px;
+  color: #3fb950;
+  font-weight: 500;
+}
+
+.scroll-top-btn {
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 8px;
+  transition: all 0.15s;
+}
+
+.scroll-top-btn:hover {
+  color: #58a6ff;
+  border-color: #58a6ff;
+}
+
+.clickable-row {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.clickable-row:hover {
+  background: #1c2128;
+}
+
+.rank-badge {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  line-height: 22px;
+  text-align: center;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  background: #21262d;
+  color: #8b949e;
+}
+
+.rank-1 { background: #d97706; color: #fff; }
+.rank-2 { background: #4b5563; color: #fff; }
+.rank-3 { background: #b45309; color: #fff; }
+
+.code-col {
+  font-family: monospace;
+  color: #58a6ff;
+}
+
+.price-col {
+  font-family: monospace;
+  font-weight: 600;
+}
+
+/* 一手资金门槛列 */
+.hand-cost-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hand-val {
+  font-family: monospace;
+  font-weight: 600;
+  color: #f0f6fc;
+}
+
+.hand-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.hand-badge.ultra-low {
+  background: rgba(0, 230, 118, 0.15);
+  color: #00e676;
+}
+
+.hand-badge.low {
+  background: rgba(56, 139, 253, 0.15);
+  color: #58a6ff;
+}
+
+.hand-badge.mid {
+  background: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+}
+
+.hand-badge.high {
+  background: rgba(234, 179, 8, 0.15);
+  color: #eab308;
+}
+
+.hand-badge.top {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+/* 价格区间标签 */
+.bracket-tag {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.bracket-tag.low {
+  background: rgba(0, 230, 118, 0.1);
+  color: #00e676;
+  border: 1px solid rgba(0, 230, 118, 0.3);
+}
+
+.bracket-tag.mid {
+  background: rgba(56, 139, 253, 0.1);
+  color: #58a6ff;
+  border: 1px solid rgba(56, 139, 253, 0.3);
+}
+
+.bracket-tag.high {
+  background: rgba(168, 85, 247, 0.1);
+  color: #a855f7;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.bracket-tag.top {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* 评分条 */
+.score-bar-container {
+  position: relative;
+  height: 20px;
+  background: #21262d;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+.score-fill {
+  position: absolute;
+  height: 100%;
+  background: linear-gradient(90deg, #1f6feb, #388bfd);
+  transition: width 0.3s;
+}
+
+.score-text {
+  position: relative;
+  z-index: 1;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  padding-left: 8px;
+  font-family: monospace;
+}
+
+.score-secondary {
+  font-family: monospace;
+  color: #8b949e;
+}
+
+/* 操作组 */
+.actions-group {
+  display: flex;
+  gap: 6px;
+}
+
+.action-mini {
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.action-mini.star-btn {
+  background: #21262d;
+  color: #8b949e;
+  border: 1px solid #30363d;
+}
+
+.action-mini.star-btn.favorited {
+  background: rgba(234, 179, 8, 0.15);
+  color: #eab308;
+  border-color: rgba(234, 179, 8, 0.5);
+}
+
+.action-mini.star-btn:hover {
+  border-color: #eab308;
+  color: #eab308;
+}
+
+.action-mini.why {
+  background: #21262d;
+  color: #58a6ff;
+  border: 1px solid #30363d;
+}
+
+.action-mini.why:hover {
+  border-color: #58a6ff;
+}
+
+.action-mini.kline {
+  background: #21262d;
+  color: #eab308;
+  border: 1px solid #30363d;
+}
+
+.action-mini.kline:hover {
+  border-color: #eab308;
+}
+
+.action-mini.paper {
+  background: rgba(35, 134, 54, 0.2);
+  color: #3fb950;
+  border: 1px solid rgba(35, 134, 54, 0.5);
+}
+
+.action-mini.paper:hover {
+  background: rgba(35, 134, 54, 0.4);
+}
+
+/* 自选股管理条 */
+.watchlist-toolbar-section {
+  background: #121824;
+  border: 1px solid #283347;
+  border-radius: 8px;
+  padding: 12px 18px;
+}
+
+.watchlist-info-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.wl-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wl-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #eab308;
+}
+
+.wl-count {
+  font-size: 13px;
+  color: #c9d1d9;
+}
+
+.wl-count b {
+  color: #58a6ff;
+}
+
+.wl-tip {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.wl-add-box {
+  display: flex;
+  gap: 8px;
+}
+
+.wl-input {
+  width: 220px;
+}
+
+.wl-btn {
+  background: #238636;
+  border-color: #2ea043;
+  color: #ffffff;
+}
+
+.wl-btn:hover {
+  background: #2ea043;
+}
+
+.empty-cell {
+  text-align: center;
+  padding: 30px;
+  color: #8b949e;
+}

@@ -6,7 +6,26 @@
       :ws-connected="wsConnected"
       @refresh="refreshAll"
     />
+    <div v-if="systemStatus?.data_health && !systemStatus.data_health.ready" class="data-warning" role="status">
+      行情未通过检查：{{ systemStatus.data_health.reason }}。交易日 {{ systemStatus.data_health.trade_date || '未知' }}，
+      覆盖 {{ systemStatus.data_health.covered_codes ?? '待核验' }}/{{ systemStatus.data_health.expected_codes ?? '待核验' }}；新推荐和指令已暂停。
+    </div>
+    <div v-if="systemStatus?.data_health?.excluded_codes?.length" class="data-warning" role="status">
+      股票池中有已核实的停牌或退市证券，已排除出当前覆盖统计：
+      {{ systemStatus.data_health.excluded_codes.map(item => `${item.code}（${item.status === 'delisted' ? '已退市' : '停牌'}）`).join('、') }}。
+    </div>
+    <div v-if="systemStatus?.data_health && (systemStatus.data_health.minute_status !== 'current' || systemStatus.data_health.minute_coverage < 0.98)" class="data-warning" role="status">
+      分钟线{{ systemStatus.data_health.minute_status === 'empty' ? '尚未采集到真实数据' : `停留在 ${systemStatus.data_health.minute_latest_date || '未知'}` }}；
+      覆盖 {{ systemStatus.data_health.minute_covered_codes ?? '待核验' }}/{{ systemStatus.data_health.minute_expected_codes ?? '待核验' }}。
+      盘中细节可能不完整。日线来源 {{ systemStatus.data_health.source || '未知' }}，更新时间 {{ systemStatus.data_health.updated_at || '未知' }}。
+    </div>
 
+    <div class="data-warning" v-if="systemStatus?.data_health?.health_checked_at">
+      健康检查 {{ systemStatus.data_health.health_checked_at }}
+      {{ systemStatus.data_health?.health_cache_stale ? '（缓存已过期，暂停新买入）' : '' }}；
+      行情更新时间 {{ systemStatus.data_health?.updated_at || '未知' }}；
+      守护应用配置 {{ systemStatus.daemon?.config_version || '待确认' }}
+    </div>
     <div class="app-main">
       <!-- 左侧边栏导航 -->
       <aside class="sidebar">
@@ -103,13 +122,14 @@ async function fetchStatus() {
   }
 }
 
+let refreshFlight = null
 function refreshAll() {
-  fetchStatus()
-  if (currentViewRef.value) {
-    if (typeof currentViewRef.value.loadSignals === 'function') currentViewRef.value.loadSignals()
-    if (typeof currentViewRef.value.loadOrders === 'function') currentViewRef.value.loadOrders()
-    if (typeof currentViewRef.value.loadAll === 'function') currentViewRef.value.loadAll()
-  }
+  if (refreshFlight) return refreshFlight
+  refreshFlight = Promise.allSettled([
+    fetchStatus(),
+    currentViewRef.value?.refresh?.()
+  ]).finally(() => { refreshFlight = null })
+  return refreshFlight
 }
 
 function handleWsMessage(payload) {
@@ -136,6 +156,13 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.data-warning {
+  padding: 9px 18px;
+  color: #f0c674;
+  background: #322718;
+  border-bottom: 1px solid #705529;
+  font-size: 13px;
+}
 .app-layout {
   display: flex;
   flex-direction: column;

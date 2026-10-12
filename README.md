@@ -42,7 +42,7 @@ pip install -r requirements.txt
 服务启动后，浏览器将自动打开：`http://localhost:8888`。
 
 ### 3. 执行自动化测试
-全量包含 94 个单元与接口测试用例：
+运行后端单元与接口测试：
 ```bash
 ./.venv/bin/pytest -v
 ```
@@ -52,3 +52,11 @@ pip install -r requirements.txt
 ## ⚠️ 风险提示
 历史回测与模拟盘表现不构成任何投资收益承诺与投资建议。股市有风险，入市需谨慎。
 
+
+## 代码维护
+
+项目模块职责、常见修改入口和验证命令见 [代码地图](docs/single-user-code-map.md)。
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).

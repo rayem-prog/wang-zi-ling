@@ -7,18 +7,16 @@ import signal
 import subprocess
 import sys
 from dataclasses import asdict, replace
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from config.settings import Settings, load_settings, save_settings
+from config.settings import Settings, load_settings, save_settings, settings_version
 from data import db
 from strategy.notify import MacLocalNotifier, WebhookNotifier
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
-
-_DAEMON_PROCESS: subprocess.Popen | None = None
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -30,6 +28,7 @@ class UpdateSettingsRequest(BaseModel):
     enable_mac_notify: bool | None = None
     webhook_url: str | None = None
     webhook_type: str | None = None
+    notify_backend: Literal['local', 'webhook', 'both', 'mock'] | None = None
 
 
 class TestNotifyRequest(BaseModel):
@@ -41,7 +40,7 @@ class TestNotifyRequest(BaseModel):
 @router.get("")
 def get_current_settings() -> dict[str, Any]:
     s = load_settings()
-    return asdict(s)
+    return dict(asdict(s), config_version=settings_version(s))
 
 
 @router.post("")
@@ -67,6 +66,8 @@ def update_settings(payload: UpdateSettingsRequest) -> dict[str, Any]:
         )
 
     new_notify = s.notify
+    if payload.notify_backend is not None:
+        new_notify = replace(new_notify, backend=payload.notify_backend)
     if payload.enable_mac_notify is not None:
         new_notify = replace(new_notify, enable_mac_notify=payload.enable_mac_notify)
     if payload.webhook_url is not None:
@@ -82,68 +83,35 @@ def update_settings(payload: UpdateSettingsRequest) -> dict[str, Any]:
         notify=new_notify,
     )
     save_settings(updated_settings)
-    return {"status": "success", "settings": asdict(updated_settings)}
+    return {"status": "success", "settings": asdict(updated_settings),
+            "config_version": settings_version(updated_settings)}
 
 
 @router.post("/notify/test")
 def test_notification(req: TestNotifyRequest) -> dict[str, Any]:
     notifier = WebhookNotifier(req.webhook_url, req.webhook_type)
-    webhook_ok = notifier.send("StockPilot 测试通知", "Webhook 机器人配置成功，可正常接收提醒！", level="P1")
-    mac_ok = True
+    webhook_ok = notifier.send("StockPilot 测试通知", "Webhook 通道连通测试", level="P1") if req.webhook_url.strip() else None
+    mac_ok = None
     if req.enable_mac_notify:
         mac_ok = MacLocalNotifier().send("StockPilot 测试通知", "macOS 本地通知测试通过！", level="P1")
 
     return {
         "webhook_ok": webhook_ok,
         "mac_ok": mac_ok,
-        "message": "测试通知已触发",
+        "success": bool(webhook_ok or mac_ok),
+        "channels": {"local": 'skipped' if mac_ok is None else 'sent' if mac_ok else 'failed',
+                     "webhook": 'skipped' if webhook_ok is None else 'sent' if webhook_ok else 'failed'},
+        "message": "至少一个渠道发送成功" if webhook_ok or mac_ok else "未发送成功；请检查渠道或配置",
     }
 
 
 @router.post("/daemon/start")
 def start_daemon() -> dict[str, Any]:
-    global _DAEMON_PROCESS
-    settings = load_settings()
-    hb = db.get_latest_heartbeat(settings.data.db_path)
-
-    # 检查当前是否已有进程存活
-    if _DAEMON_PROCESS and _DAEMON_PROCESS.poll() is None:
-        return {"status": "already_running", "pid": _DAEMON_PROCESS.pid}
-
-    # 启动新进程
-    cmd = [sys.executable, "-m", "scripts.intraday_daemon"]
-    _DAEMON_PROCESS = subprocess.Popen(
-        cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        cwd=os.getcwd(),
-    )
-    return {"status": "started", "pid": _DAEMON_PROCESS.pid}
+    from scripts import daemon_control
+    return daemon_control.start_daemon()
 
 
 @router.post("/daemon/stop")
 def stop_daemon() -> dict[str, Any]:
-    global _DAEMON_PROCESS
-    killed_pids = []
-    if _DAEMON_PROCESS and _DAEMON_PROCESS.poll() is None:
-        _DAEMON_PROCESS.terminate()
-        try:
-            _DAEMON_PROCESS.wait(timeout=3)
-        except Exception:
-            _DAEMON_PROCESS.kill()
-        killed_pids.append(_DAEMON_PROCESS.pid)
-        _DAEMON_PROCESS = None
-
-    # 同时尝试杀死 DB 中记录的 PID（如果它是由终端启动的）
-    settings = load_settings()
-    hb = db.get_latest_heartbeat(settings.data.db_path)
-    if hb and hb.get("pid"):
-        db_pid = hb["pid"]
-        if db_pid not in killed_pids and db_pid > 1:
-            try:
-                os.kill(db_pid, signal.SIGTERM)
-                killed_pids.append(db_pid)
-            except Exception:
-                pass
-
-    return {"status": "stopped", "killed_pids": killed_pids}
+    from scripts import daemon_control
+    return daemon_control.stop_daemon()

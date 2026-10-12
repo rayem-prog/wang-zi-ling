@@ -9,6 +9,8 @@ from typing import Protocol
 
 import requests
 
+_DEFAULT_LOCAL = object()
+
 
 class Notifier(Protocol):
     def send(self, title: str, content: str, level: str = "P1") -> bool:
@@ -26,8 +28,8 @@ class MacLocalNotifier:
         safe_content = content.replace("\\", "\\\\").replace('"', '\\"')
         script = f'display notification "{safe_content}" with title "{safe_title}" sound name "{sound}"'
         try:
-            subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
-            return True
+            result = subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
+            return result.returncode == 0
         except Exception:
             return False
 
@@ -85,14 +87,15 @@ class CompositeNotifier:
 
     def __init__(
         self,
-        local_notifier: Notifier | None = None,
+        local_notifier: Notifier | None = _DEFAULT_LOCAL,
         webhook_notifier: Notifier | None = None,
         mock_notifier: MockNotifier | None = None,
         mode: str = "local",
         p1_cooldown_minutes: int = 15,
         daily_cap: int = 30,
     ):
-        self.local_notifier = local_notifier or MacLocalNotifier()
+        # Omitted uses the historical default; explicit None disables the channel.
+        self.local_notifier = MacLocalNotifier() if local_notifier is _DEFAULT_LOCAL else local_notifier
         self.webhook_notifier = webhook_notifier
         self.mock_notifier = mock_notifier
         self.mode = mode

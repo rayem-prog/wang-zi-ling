@@ -8,7 +8,8 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from starlette.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -26,7 +27,7 @@ async def _background_push_loop() -> None:
     while True:
         try:
             if manager.active_connections:
-                status_res = status.get_system_status()
+                status_res = await run_in_threadpool(status.get_system_status)
                 payload = {
                     "type": "heartbeat",
                     "timestamp": dt.datetime.now().isoformat(),
@@ -45,8 +46,15 @@ async def lifespan(app: FastAPI):
     settings = load_settings()
     db.init_db(settings.data.db_path)
     push_task = asyncio.create_task(_background_push_loop())
+    from api.market_refresh import refresh_loop
+    refresh_task = asyncio.create_task(refresh_loop())
     logger.info("StockPilot API Server started.")
     yield
+    refresh_task.cancel()
+    try:
+        await refresh_task
+    except asyncio.CancelledError:
+        pass
     push_task.cancel()
     try:
         await push_task
@@ -89,7 +97,7 @@ app.include_router(sandbox.router)
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
-        init_status = status.get_system_status()
+        init_status = await run_in_threadpool(status.get_system_status)
         await websocket.send_json({"type": "init", "data": init_status})
         while True:
             data = await websocket.receive_text()
@@ -107,10 +115,16 @@ if FRONTEND_DIST.exists():
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        file_path = FRONTEND_DIST / full_path
+        root = FRONTEND_DIST.resolve()
+        file_path = (root / full_path).resolve()
+        if not file_path.is_relative_to(root):
+            raise HTTPException(status_code=404, detail="文件不存在")
         if file_path.exists() and file_path.is_file():
             return FileResponse(file_path)
-        return FileResponse(FRONTEND_DIST / "index.html")
+        index = (root / "index.html").resolve()
+        if not index.is_relative_to(root) or not index.is_file():
+            raise HTTPException(status_code=404, detail="文件不存在")
+        return FileResponse(index)
 else:
     @app.get("/")
     def index_placeholder():

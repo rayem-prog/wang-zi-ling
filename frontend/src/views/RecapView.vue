@@ -19,7 +19,7 @@
         <button 
           class="action-btn run-recap-btn" 
           :class="{ 'is-running': runningRecap }" 
-          @click="handleRunRecap(true)" 
+          @click="handleRunRecap(false)"
           :disabled="runningRecap"
         >
           <span v-if="runningRecap" class="spinner-inline"></span>
@@ -82,7 +82,7 @@
         <button 
           class="action-btn run-recap-btn empty-btn" 
           :class="{ 'is-running': runningRecap }" 
-          @click="handleRunRecap(true)" 
+          @click="handleRunRecap(false)"
           :disabled="runningRecap"
         >
           <span v-if="runningRecap" class="spinner-inline"></span>
@@ -95,9 +95,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue'
 import { marked } from 'marked'
 import { api } from '../api'
+import { recapSession } from '../recapSession'
 
 const loading = ref(false)
 const runningRecap = ref(false)
@@ -167,47 +168,127 @@ async function loadReport() {
 
 async function handleRefresh() {
   await Promise.all([loadList(), loadSummary()])
+  await loadReport()
 }
 
-async function handleRunRecap(fastMode = true) {
-  if (runningRecap.value) return
+let pollTimer = null
+let pollFlight = null
+let active = true
+let refreshFlight = null
+const jobId = ref(recapSession.jobId)
+
+function refresh() {
+  if (refreshFlight) return refreshFlight
+  refreshFlight = handleRefresh().finally(() => { refreshFlight = null })
+  return refreshFlight
+}
+
+function schedulePoll() {
+  clearTimeout(pollTimer)
+  pollTimer = null
+  if (active && jobId.value) pollTimer = setTimeout(pollJob, 2000)
+}
+
+async function finishJob(job) {
+  const result = job.result || {}
   runningRecap.value = true
-  runNotice.value = '正在拉取全市场数据、评估双引擎胜率与超额、自适应调权并优化公式算法...'
-  runSuccess.value = true
-
+  clearTimeout(pollTimer)
+  pollTimer = null
   try {
-    const res = await api.runDailyRecap(fastMode)
-    runSuccess.value = true
-    const updatedDate = res?.date || selectedDate.value
-    runNotice.value = `今日复盘与算法调优完成！已生成 ${updatedDate} 简报，双引擎权重与多因子公式已自适应更新。`
-
-    // 重新获取列表与摘要
-    await loadSummary()
-    const list = await api.getRecapList()
-    dateList.value = list || []
-    if (updatedDate) {
-      selectedDate.value = updatedDate
-    } else if (dateList.value.length > 0) {
-      selectedDate.value = dateList.value[0]
+    runSuccess.value = job.status === 'succeeded' && result.success !== false
+    if (!runSuccess.value) {
+      runNotice.value = `复盘未完成：${job.error || result.reason || '执行失败'}`
+      return
     }
+    const updatedDate = result.date
+    runNotice.value = `复盘已完成${updatedDate ? `：${updatedDate}` : ''}`
+    await loadSummary()
+    dateList.value = await api.getRecapList() || []
+    selectedDate.value = updatedDate || dateList.value[0] || ''
     await loadReport()
-
-    setTimeout(() => {
-      if (!runningRecap.value) {
-        runNotice.value = ''
-      }
-    }, 6000)
-  } catch (err) {
-    runSuccess.value = false
-    runNotice.value = `执行复盘失败: ${err?.response?.data?.detail || err?.message || '未知错误'}`
   } finally {
     runningRecap.value = false
+    jobId.value = null
+    if (recapSession.jobId === job.job_id) recapSession.jobId = null
   }
 }
 
-onMounted(() => {
-  handleRefresh()
-})
+function pollJob() {
+  if (pollFlight) return pollFlight
+  if (!active || !jobId.value) return
+  const id = jobId.value
+  pollFlight = api.getRecapJob(id).then(async job => {
+    if (!active || id !== jobId.value) return
+    if (job.status === 'succeeded' || job.status === 'failed') {
+      await finishJob(job)
+    } else {
+      runNotice.value = `任务 ${id}：${job.status === 'queued' ? '排队中' : '运行中'}，正在查询进度…`
+    }
+  }).catch(err => {
+    if (active) runNotice.value = `任务 ${id} 状态读取失败，将继续查询：${err?.response?.data?.detail || err.message}`
+  }).finally(() => {
+    pollFlight = null
+    schedulePoll()
+  })
+  return pollFlight
+}
+
+async function attachSubmission(submission) {
+  runningRecap.value = true
+  runSuccess.value = true
+  runNotice.value = '正在提交今日复盘任务…'
+  try {
+    const job = await submission
+    if (!job?.job_id) throw new Error('服务未返回复盘任务 ID')
+    recapSession.jobId = job.job_id
+    jobId.value = job.job_id
+    if (!active) return
+    if (job.status === 'succeeded' || job.status === 'failed') await finishJob(job)
+    else await pollJob()
+  } catch (err) {
+    if (active) {
+      runningRecap.value = false
+      runSuccess.value = false
+      runNotice.value = `提交复盘失败：${err?.response?.data?.detail || err.message}`
+    }
+  } finally {
+    if (recapSession.submission === submission) recapSession.submission = null
+  }
+}
+
+function handleRunRecap(fastMode = false) {
+  if (runningRecap.value) return
+  if (recapSession.jobId) {
+    jobId.value = recapSession.jobId
+    runningRecap.value = true
+    return pollJob()
+  }
+  if (!recapSession.submission) recapSession.submission = api.runDailyRecap(fastMode)
+  return attachSubmission(recapSession.submission)
+}
+
+function activate() {
+  active = true
+  refresh()
+  if (recapSession.jobId) {
+    jobId.value = recapSession.jobId
+    runningRecap.value = true
+    pollJob()
+  } else if (recapSession.submission) {
+    attachSubmission(recapSession.submission)
+  }
+}
+function deactivate() {
+  active = false
+  clearTimeout(pollTimer)
+  pollTimer = null
+}
+onMounted(activate)
+onActivated(activate)
+onDeactivated(deactivate)
+onUnmounted(deactivate)
+defineExpose({ refresh })
+
 </script>
 
 <style scoped>

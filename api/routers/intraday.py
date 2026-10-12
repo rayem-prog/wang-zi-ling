@@ -3,16 +3,28 @@
 from __future__ import annotations
 
 from pathlib import Path
+import datetime as dt
+import sqlite3
 from typing import Any
 
 import pandas as pd
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from config.settings import load_settings
+from strategy import risk
 from data import db, fetcher
+from data.health import _expected_session, assess_data_health, recommendation_state
+from data.timeliness import quote_state, exchange_now
+from api.health_cache import health_cache
 from strategy import holdings
 
 router = APIRouter(prefix="/api/intraday", tags=["intraday"])
+
+
+def _fresh_quotes(quotes: pd.DataFrame) -> pd.DataFrame:
+    if quotes.empty:
+        return pd.DataFrame(columns=["code", "price", "pct_change"])
+    return quotes.loc[[not quote_state(row)["stale"] for row in quotes.to_dict("records")]].copy()
 
 
 @router.get("/decisions")
@@ -20,12 +32,14 @@ def get_intraday_decisions() -> dict[str, Any]:
     settings = load_settings()
     stop_loss_pct = float(settings.risk.stop_loss)
     take_profit_pct = float(settings.risk.take_profit)
+    errors = []
 
     # 1. 持仓动态决策计算
     holdings_df = holdings.load_positions(settings.data.db_path)
     holdings_decisions = []
     urgent_count = 0
     take_profit_count = 0
+    quote_states = {}
 
     if not holdings_df.empty:
         holdings_df["code"] = holdings_df["code"].astype(str).str.zfill(6)
@@ -34,11 +48,15 @@ def get_intraday_decisions() -> dict[str, Any]:
         # 获取实时行情
         try:
             spot = fetcher.fetch_spot_batch(codes)
-        except Exception:
+        except Exception as exc:
+            errors.append(f"持仓行情采集失败: {exc}")
             spot = pd.DataFrame()
 
         if spot.empty:
             spot = db.load_spot(settings.data.db_path)
+        if not spot.empty:
+            quote_states = {str(r["code"]).zfill(6): quote_state(r) for r in spot.to_dict("records")}
+        spot = _fresh_quotes(spot)
 
         price_map = {}
         pct_map = {}
@@ -52,7 +70,19 @@ def get_intraday_decisions() -> dict[str, Any]:
             name = row["name"]
             shares = float(row["shares"])
             cost = float(row["cost"])
-            cur_price = float(price_map.get(code, cost))
+            state = quote_states.get(code, dict(stale=True, trade_date=None, quote_time=None, price_source=None))
+            metadata = {"price_stale": state["stale"], "trade_date": state["trade_date"],
+                        "quote_time": state["quote_time"], "price_source": state["price_source"]}
+            if code not in price_map:
+                holdings_decisions.append({
+                    "code": code, "name": name, "shares": shares, "cost": cost, **metadata,
+                    "price": None, "today_pct": None, "pnl_pct": None,
+                    "status": "DATA_UNAVAILABLE", "level": "ERROR",
+                    "action_badge": "行情不可用",
+                    "advice": "缺少对应交易日的真实快照，无法判断止损或止盈",
+                })
+                continue
+            cur_price = float(price_map[code])
             today_pct = float(pct_map.get(code, 0.0))
 
             pnl_pct = (cur_price - cost) / cost if cost > 0 else 0.0
@@ -90,6 +120,7 @@ def get_intraday_decisions() -> dict[str, Any]:
 
             holdings_decisions.append({
                 "code": code,
+                **metadata,
                 "name": name,
                 "shares": shares,
                 "cost": round(cost, 2),
@@ -107,8 +138,12 @@ def get_intraday_decisions() -> dict[str, Any]:
     # 2. 昨日指令单执行状态监控
     orders_triggers = []
     in_range_count = 0
-    orders_path = Path("artifacts/latest_orders.csv")
-    if orders_path.exists():
+    order_state = recommendation_state(settings, health_cache.get(settings))
+    order_ready = order_state["ready"]
+    if not order_ready:
+        errors.append(f"指令单暂停: {order_state['reason']}")
+    orders_path = Path(settings.paths.artifact_dir) / "latest_orders.csv"
+    if order_ready and risk.buying_allowed(risk.current_policy(settings)) and orders_path.exists():
         try:
             ord_df = pd.read_csv(orders_path, dtype={"code": str})
             if not ord_df.empty:
@@ -117,8 +152,10 @@ def get_intraday_decisions() -> dict[str, Any]:
 
                 try:
                     ord_spot = fetcher.fetch_spot_batch(ord_codes)
-                except Exception:
+                except Exception as exc:
+                    errors.append(f"指令单行情采集失败: {exc}")
                     ord_spot = pd.DataFrame()
+                ord_spot = _fresh_quotes(ord_spot)
 
                 if not ord_spot.empty:
                     ord_spot["code"] = ord_spot["code"].astype(str).str.zfill(6)
@@ -126,12 +163,14 @@ def get_intraday_decisions() -> dict[str, Any]:
                     pct_sp_map = dict(zip(ord_spot["code"], ord_spot.get("pct_change", [0.0] * len(ord_spot))))
 
                     for _, o in ord_df.iterrows():
+                        if str(o.get("action", "")) not in {"买入", "加仓"}:
+                            continue
                         c = o["code"]
                         name = o.get("name", c)
                         p = float(sp_map.get(c, 0.0))
                         pct = float(pct_sp_map.get(c, 0.0))
-                        p_low = float(o.get("price_low", 0.0))
-                        p_high = float(o.get("price_high", 999999.0))
+                        p_low = float(o["limit_low"])
+                        p_high = float(o["limit_high"])
 
                         # 涨停放弃
                         if pct >= 9.8:
@@ -153,17 +192,20 @@ def get_intraday_decisions() -> dict[str, Any]:
                                 "message": f"现价 ¥{p:.2f} 进入计划区间 [¥{p_low:.2f} ~ ¥{p_high:.2f}]，符合买入条件！",
                             })
                             in_range_count += 1
-        except Exception:
-            pass
+        except Exception as exc:
+            errors.append(f"指令单读取失败: {exc}")
 
     return {
         "holdings_decisions": holdings_decisions,
         "orders_triggers": orders_triggers,
+        "errors": errors,
         "summary": {
             "urgent_count": urgent_count,
             "take_profit_count": take_profit_count,
             "in_range_count": in_range_count,
             "total_holdings": len(holdings_decisions),
+            "stale_count": sum(row["price_stale"] for row in holdings_decisions),
+            "timestamp": exchange_now().isoformat(timespec="seconds"),
         },
     }
 
@@ -172,11 +214,16 @@ def get_intraday_decisions() -> dict[str, Any]:
 def get_intraday_radar() -> list[dict[str, Any]]:
     """盘中实时异动机会扫描（多头动量与突破标的）。"""
     settings = load_settings()
+    if not recommendation_state(settings, health_cache.get(settings))["ready"]:
+        return []
     radar_candidates = []
 
     # 优先从自选 + 历史推荐池中抓取高频异动
     watch_pool = set(settings.universe.extra_codes)
-    rec_path = Path("artifacts/recommendations.csv")
+    with sqlite3.connect(settings.data.db_path) as conn:
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='user_watchlist'").fetchone():
+            watch_pool.update(row[0] for row in conn.execute("SELECT code FROM user_watchlist"))
+    rec_path = Path(settings.paths.artifact_dir) / "recommendations.csv"
     if rec_path.exists():
         try:
             rdf = pd.read_csv(rec_path, dtype={"code": str})
@@ -185,10 +232,12 @@ def get_intraday_radar() -> list[dict[str, Any]]:
             pass
 
     if not watch_pool:
-        watch_pool = {"000001", "600519", "000858", "601318", "300750", "002594", "601899", "600036"}
+        return []
 
     try:
-        spot_df = fetcher.fetch_spot_batch(sorted(watch_pool))
+        spot_df = _fresh_quotes(fetcher.fetch_spot_batch(sorted(watch_pool)))
+        if spot_df.empty:
+            raise RuntimeError("异动雷达缺少对应交易日的真实行情")
         if not spot_df.empty:
             for _, r in spot_df.iterrows():
                 code = str(r["code"]).zfill(6)
@@ -219,7 +268,7 @@ def get_intraday_radar() -> list[dict[str, Any]]:
                     })
 
             radar_candidates.sort(key=lambda x: x["score"], reverse=True)
-    except Exception:
-        pass
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"异动雷达不可用: {exc}") from exc
 
     return radar_candidates[:15]

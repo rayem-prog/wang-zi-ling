@@ -9,8 +9,11 @@ from typing import Any
 from fastapi import APIRouter
 
 from api.ws import get_market_trading_status
-from config.settings import load_settings
+from config.settings import load_settings, settings_version
+from api.health_cache import health_cache
+from api.jobs import daily_jobs
 from data import db
+from data.health import assess_data_health, recommendation_state
 
 router = APIRouter(prefix="/api/status", tags=["status"])
 
@@ -38,7 +41,7 @@ def evaluate_daemon_status(hb: dict | None, max_delay_seconds: int = 180) -> dic
     except Exception:
         elapsed = 9999
 
-    is_online = (elapsed <= max_delay_seconds) and (status in ("running", "started", "standby"))
+    is_online = (elapsed <= max_delay_seconds) and (status in ("running", "started", "standby", "degraded"))
     return {
         "online": is_online,
         "status": status,
@@ -47,12 +50,15 @@ def evaluate_daemon_status(hb: dict | None, max_delay_seconds: int = 180) -> dic
         "pid": pid,
         "timestamp": ts_str,
         "elapsed_seconds": int(elapsed),
+        "config_version": hb.get('config_version', ''),
     }
 
 
 @router.get("")
 def get_system_status() -> dict[str, Any]:
     settings = load_settings()
+    data_health = health_cache.get(settings)
+    recommendation = recommendation_state(settings, data_health)
     try:
         hb = db.get_latest_heartbeat(settings.data.db_path)
     except Exception:
@@ -88,8 +94,8 @@ def get_system_status() -> dict[str, Any]:
 
     # 文件统计
     rec_count = 0
-    rec_p = Path("artifacts/recommendations.csv")
-    if rec_p.exists():
+    rec_p = Path(settings.paths.artifact_dir) / "recommendations.csv"
+    if recommendation["ready"] and rec_p.exists():
         try:
             import pandas as pd
             rec_count = len(pd.read_csv(rec_p))
@@ -97,8 +103,8 @@ def get_system_status() -> dict[str, Any]:
             pass
 
     orders_count = 0
-    ord_p = Path("artifacts/latest_orders.csv")
-    if ord_p.exists():
+    ord_p = Path(settings.paths.artifact_dir) / "latest_orders.csv"
+    if recommendation["ready"] and ord_p.exists():
         try:
             import pandas as pd
             orders_count = len(pd.read_csv(ord_p))
@@ -107,7 +113,11 @@ def get_system_status() -> dict[str, Any]:
 
     return {
         "server_time": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "config_version": settings_version(settings),
         "market": get_market_trading_status(),
+        "data_health": data_health,
+        "data_update": daily_jobs.latest_summary(),
+        "recommendation": recommendation,
         "daemon": daemon_info,
         "macro": macro_info,
         "counts": {
