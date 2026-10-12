@@ -15,11 +15,24 @@
             class="terminal-input"
           />
         </div>
-        <button class="action-btn" @click="refresh" :disabled="loading">
-          {{ loading ? '加载中...' : '🔄 刷新榜单' }}
+        <button class="action-btn" @click="refresh" :disabled="jobRunning">
+          {{ jobRunning ? '后台更新中...' : '🔄 刷新榜单' }}
         </button>
       </div>
     </div>
+
+    <section class="result-status" :class="snapshot?.result_state" role="status" aria-live="polite">
+      <div class="result-status-meta">
+        <strong>{{ resultLabel }}</strong>
+        <span v-if="snapshot?.data_as_of">数据截至 {{ formatResultTime(snapshot.data_as_of) }}</span>
+        <span v-if="snapshot?.generated_at">生成于 {{ formatResultTime(snapshot.generated_at) }}</span>
+        <span v-if="loading">正在读取最新状态...</span>
+      </div>
+      <p v-if="statusMessage" class="result-status-message">{{ statusMessage }}</p>
+      <p v-if="snapshot?.empty_kind === 'screened_out' && snapshot.selection?.funnel?.length" class="result-funnel">
+        <span v-for="stage in snapshot.selection.funnel" :key="stage.name">{{ stage.name }}：{{ stage.input }} → {{ stage.output }}；</span>
+      </p>
+    </section>
 
     <!-- 模式切换：价格区间选股推荐 VS 综合选股推荐 -->
     <div class="mode-tabs-bar">
@@ -347,7 +360,7 @@
                 <button class="action-mini kline" @click.stop="openKline(item)" title="查看高清蜡烛图">
                   📈 K线
                 </button>
-                <button v-if="!item.unavailable" class="action-mini paper" @click.stop="handleGoPaper(item)" title="直接带入模拟交易下单">
+                <button v-if="!item.unavailable" class="action-mini paper" :disabled="!canBuy" @click.stop="handleGoPaper(item)" title="直接带入模拟交易下单">
                   🎮 下单
                 </button>
               </div>
@@ -400,6 +413,7 @@
       v-model:visible="attributionVisible"
       :stock="selectedStock"
       @open-kline="openKline"
+      :can-buy="canBuy"
       @go-paper="handleGoPaper"
     />
 
@@ -420,7 +434,7 @@ const props = defineProps({ systemStatus: { type: Object, default: () => ({}) } 
 const emit = defineEmits(['switch-tab'])
 const {
   viewMode, selectedBracket, sortBy, customMinPrice, customMaxPrice,
-  signals, watchlist, watchlistCodes, quickAddInput, stats,
+  snapshot, jobRunning, canBuy, resultLabel, formatResultTime, signals, watchlist, watchlistCodes, quickAddInput, stats,
   loading, statusMessage, searchQuery, klineVisible, attributionVisible, selectedStock,
   displaySignals, topSignal, cheapestSignal, pageSize, currentPage,
   totalPages, paginatedSignals, tableWrapperRef, isDragging, refresh,
@@ -436,3 +450,13 @@ defineExpose({ refresh })
 <style scoped src="../features/signals/styles/toolbar-and-brackets.css"></style>
 <style scoped src="../features/signals/styles/filters-and-summary.css"></style>
 <style scoped src="../features/signals/styles/table-and-watchlist.css"></style>
+
+<style scoped>
+.result-status { margin: 8px 0 18px; padding: 12px 16px; border: 1px solid var(--border-color, #334155); border-radius: 8px; background: var(--bg-secondary, #17202d); }
+.result-status-meta { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; }
+.result-status-meta span { color: var(--text-secondary, #b4bdca); font-size: 13px; }
+.result-status-message, .result-funnel { margin: 8px 0 0; line-height: 1.5; font-size: 13px; }
+.result-status.historical { border-color: #a87924; }
+.result-status.revoked { border-color: #c05454; }
+.action-mini:disabled { cursor: not-allowed; opacity: .45; }
+</style>

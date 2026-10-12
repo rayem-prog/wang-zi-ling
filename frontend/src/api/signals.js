@@ -1,6 +1,7 @@
 import { client } from './client.js'
 
 export const signalsApi = {
+  getSignalsSnapshot: (params = {}, options = {}) => client.get('/signals/snapshot', { ...options, params }).then(res => res.data),
   refreshSignals: () => client.post('/signals/refresh').then(res => res.data),
   getSignals: (params = {}) => client.get('/signals', { params }).then(res => res.data),
   getSignalsStats: () => client.get('/signals/stats').then(res => res.data),

@@ -57,7 +57,7 @@
         <button class="footer-btn kline-btn" @click="$emit('open-kline', stock)">
           📈 打开 K 线图表
         </button>
-        <button class="footer-btn paper-btn" @click="$emit('go-paper', stock)">
+        <button class="footer-btn paper-btn" :disabled="!canBuy" @click="$emit('go-paper', stock)">
           🎮 带入模拟盘下单
         </button>
       </div>
@@ -67,6 +67,7 @@
 
 <script setup>
 defineProps({
+  canBuy: { type: Boolean, default: false },
   visible: {
     type: Boolean,
     default: false

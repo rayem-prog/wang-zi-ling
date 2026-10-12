@@ -12,6 +12,11 @@ export function useSignalsPage(emit) {
   const customMinPrice = ref(null)
   const customMaxPrice = ref(null)
 
+  const snapshot = ref(null)
+  const refreshSubmitting = ref(false)
+  const jobRunning = computed(() => refreshSubmitting.value || ['queued', 'running'].includes(snapshot.value?.job?.status))
+  const canBuy = computed(() => snapshot.value?.action_permissions?.create_buy === 'allowed')
+  const resultLabel = computed(() => ({ current: '当前有效', historical: '历史结果，仅供回看', revoked: '已撤销', none: '尚无结果' })[snapshot.value?.result_state] || '正在读取结果')
   const signals = ref([])
   const watchlist = ref([])
   const watchlistCodes = computed(() => watchlist.value.map(s => s.code))
@@ -22,6 +27,10 @@ export function useSignalsPage(emit) {
   const statusMessage = ref('')
   let auditTimer = null
   let disposed = false
+  let requestSequence = 0
+  let requestController = null
+  let retryDelay = 2000
+  let lastQueryKey = null
   const searchQuery = ref('')
   const klineVisible = ref(false)
   const attributionVisible = ref(false)
@@ -133,32 +142,87 @@ export function useSignalsPage(emit) {
   }
 
   function handleGoPaper(stock) {
+    if (!canBuy.value || stock?.unavailable) return
     attributionVisible.value = false
     emit('switch-tab', { tab: 'paper', stock: stock })
   }
 
+  function formatResultTime(value) {
+    if (!value) return '未记录'
+    const time = new Date(value)
+    return Number.isNaN(time.getTime()) ? value : time.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
+  }
+
+  function describeSnapshot(value) {
+    const messages = []
+    const error = value.job?.error
+    if (error) messages.push(typeof error === 'string' ? error : error.message)
+    if (value.audit?.error?.message) messages.push(value.audit.error.message)
+    if (['queued', 'running'].includes(value.job?.status)) {
+      const stages = { queued: '排队', fetch: '采集行情', audit: '核验行情', features: '计算因子', train: '模型计算', score: '候选评分', risk: '风险检查', validate: '校验结果', persist: '保存结果', publish: '发布结果', complete: '完成' }
+      messages.push(`更新中：${stages[value.job.stage] || '后台计算'}`)
+    } else if (['pending', 'running'].includes(value.audit_state)) messages.push('正在核验行情，已有结果保留')
+    if (value.job?.status === 'interrupted') messages.push('上次更新已中断，请重新生成')
+    for (const reason of value.blocked_reasons || []) if (reason.message) messages.push(reason.message)
+    if (value.empty_kind === 'screened_out') messages.push('本次计算完成，没有满足筛选条件的候选')
+    if (value.empty_kind === 'filter_no_match') messages.push('当前筛选条件无匹配候选')
+    if (value.empty_kind === 'no_snapshot') messages.push('尚未生成结果，请点击刷新榜单启动初始化')
+    return [...new Set(messages.filter(Boolean))].join('；')
+  }
+
+  function statsFromSnapshot(value) {
+    const brackets = {}
+    for (const [key, count] of Object.entries(value.counts.brackets)) {
+      const rows = value.rows.filter(row => row.price_bracket === key)
+      brackets[key] = { key, count, min_hand_cost: rows.length ? Math.min(...rows.map(row => row.hand_cost || row.price * 100)) : 0,
+        top_stock: rows.length ? `${rows[0].name} (¥${rows[0].price})` : '' }
+    }
+    return { total_count: value.counts.filtered_total, brackets }
+  }
+
+  function scheduleRead(delay) {
+    clearTimeout(auditTimer)
+    if (!disposed) auditTimer = setTimeout(loadSignals, delay)
+  }
+
   async function loadSignals() {
+    if (disposed) return
+    const sequence = ++requestSequence
+    clearTimeout(auditTimer)
+    requestController?.abort()
+    requestController = new AbortController()
     loading.value = true
     try {
-      const params = {
-        sort_by: sortBy.value
+      const params = { sort_by: sortBy.value }
+      const queryKey = JSON.stringify(params)
+      const response = await api.getSignalsSnapshot(params, { signal: requestController.signal })
+      if (disposed || sequence !== requestSequence) return
+      if (!response || !Array.isArray(response.rows) || !response.counts || response.counts.filtered_total !== response.rows.length) {
+        throw new Error('结果响应不完整，请重新读取')
       }
-      const [resSignals, resStats] = await Promise.all([
-        api.getSignals(params),
-        api.getSignalsStats().catch(() => ({ total_count: 0, brackets: {} }))
-      ])
-      signals.value = resSignals || []
-      if (resStats) stats.value = resStats
-      statusMessage.value = resStats?.readiness?.reason || ''
-      if ((resStats?.readiness?.audit_pending || (!signals.value.length && resStats?.total_count > 0)) && !disposed) {
-        clearTimeout(auditTimer)
-        auditTimer = setTimeout(loadSignals, 2000)
+      if (lastQueryKey === queryKey && snapshot.value && response.response_revision < snapshot.value.response_revision) {
+        scheduleRead(2000)
+        return
       }
+      snapshot.value = response
+      signals.value = response.rows
+      stats.value = statsFromSnapshot(response)
+      lastQueryKey = queryKey
+      statusMessage.value = describeSnapshot(response)
+      retryDelay = 2000
+      const pending = ['queued', 'running'].includes(response.job?.status) || ['pending', 'running'].includes(response.audit_state)
+      if (pending || response.snapshot_id) scheduleRead(pending ? 2000 : 30000)
     } catch (err) {
-      statusMessage.value = err.message || '推荐读取失败，请重新刷新'
-      console.error('Failed to load signals:', err)
+      if (disposed || sequence !== requestSequence) return
+      if (snapshot.value && snapshot.value.result_state !== 'revoked') {
+        snapshot.value = { ...snapshot.value, result_state: snapshot.value.snapshot_id ? 'historical' : 'none',
+          action_permissions: { ...snapshot.value.action_permissions, create_buy: 'paused', add_position: 'paused', export_orders: 'paused' } }
+      }
+      statusMessage.value = `连接异常，状态未确认：${err.message || '推荐读取失败'}；已有内容仅供回看`
+      scheduleRead(retryDelay)
+      retryDelay = Math.min(retryDelay * 2, 30000)
     } finally {
-      loading.value = false
+      if (sequence === requestSequence) loading.value = false
     }
   }
 
@@ -238,6 +302,8 @@ export function useSignalsPage(emit) {
   }
 
   function getGlobalRank(idx) {
+    const row = paginatedSignals.value[idx]
+    if (row?.rank) return row.rank
     if (pageSize.value >= displaySignals.value.length) {
       return idx + 1
     }
@@ -269,38 +335,31 @@ export function useSignalsPage(emit) {
   })
 
   async function refresh() {
-    if (loading.value) return
-    loading.value = true
-    statusMessage.value = '正在根据可信历史重新计算推荐...'
-    clearTimeout(auditTimer)
+    if (jobRunning.value || disposed) return
+    refreshSubmitting.value = true
+    statusMessage.value = '正在提交后台更新，已有结果保留'
     try {
-      let job = await api.refreshSignals()
-      while (!disposed) {
-        const state = await api.getRecapJob(job.job_id)
-        if (state.status === 'failed') throw new Error(state.error || '历史推荐生成失败')
-        if (state.status === 'succeeded') {
-          if (state.data_only) {
-            job = await api.refreshSignals()
-            continue
-          }
-          await loadSignals()
-          await loadWatchlist()
-          return
-        }
-        await new Promise(resolve => setTimeout(resolve, 1000))
-      }
+      const job = await api.refreshSignals()
+      if (disposed) return
+      if (snapshot.value) snapshot.value = { ...snapshot.value, job }
+      await loadSignals()
     } catch (err) {
-      statusMessage.value = err.message || '推荐生成失败'
+      if (disposed) return
+      statusMessage.value = err.message || '推荐生成提交失败'
+      if (snapshot.value) snapshot.value = { ...snapshot.value,
+        action_permissions: { ...snapshot.value.action_permissions, create_buy: 'paused', add_position: 'paused', export_orders: 'paused' } }
+      scheduleRead(retryDelay)
     } finally {
-      loading.value = false
+      refreshSubmitting.value = false
     }
   }
 
-  onUnmounted(() => { disposed = true; clearTimeout(auditTimer) })
+  watch(sortBy, () => { currentPage.value = 1; loadSignals() })
+  onUnmounted(() => { disposed = true; ++requestSequence; requestController?.abort(); clearTimeout(auditTimer) })
 
   return {
     viewMode, selectedBracket, sortBy, customMinPrice, customMaxPrice,
-    signals, watchlist, watchlistCodes, quickAddInput, stats,
+    snapshot, jobRunning, canBuy, resultLabel, formatResultTime, signals, watchlist, watchlistCodes, quickAddInput, stats,
     loading, statusMessage, searchQuery, klineVisible, attributionVisible, selectedStock,
     displaySignals, topSignal, cheapestSignal, pageSize, currentPage,
     totalPages, paginatedSignals, tableWrapperRef, isDragging, refresh,

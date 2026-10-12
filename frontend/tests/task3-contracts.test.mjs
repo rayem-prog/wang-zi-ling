@@ -453,31 +453,44 @@ test('unavailable watchlist rows remain visible and do not open attribution', as
   assert.equal(view.state.attributionVisible.value,false)
 })
 
-test('signal refresh calculates history and reloads the completed dated leaderboard', async () => {
+test('signal refresh submits background history work and reads the completed dated snapshot', async () => {
   const calls = []
   const view = setup('views/SignalsView', {
-    refreshSignals: async () => { calls.push('generate'); return { job_id: 'history-job' } },
-    getRecapJob: async () => { calls.push('job'); return { status:'succeeded' } },
-    getSignals: async () => { calls.push('rows'); return [{code:'000001',name:'Result',price:10,trade_date:'2026-10-09'}] },
-    getSignalsStats: async () => ({ total_count:1, brackets:{} }),
+    refreshSignals: async () => { calls.push('generate'); return { job_id: 'history-job', status: 'queued' } },
+    getSignalsSnapshot: async () => { calls.push('snapshot'); return {
+      snapshot_id: 'S-history', data_as_of: '2026-10-09T15:00:00+08:00', result_state: 'historical', response_revision: 2,
+      rows: [{code:'000001',name:'Result',price:10,price_bracket:'low',trade_date:'2026-10-09'}],
+      counts: {snapshot_total:1,filtered_total:1,brackets:{low:1,mid:0,high:0,top:0}},
+      job: {status:'succeeded'}, action_permissions:{create_buy:'paused'}, blocked_reasons:[]
+    } },
     getWatchlist: async () => []
   })
   await view.exposed.refresh()
-  assert.deepEqual(calls.slice(0,3), ['generate','job','rows'])
+  assert.deepEqual(calls, ['generate','snapshot'])
   assert.equal(view.state.signals.value[0].trade_date,'2026-10-09')
+  view.hooks.unmounted.forEach(fn => fn())
 })
 
-test('signals retries when stats becomes ready after the initial empty row response', async () => {
+test('signals polls one snapshot while initializing, then receives rows and matching counts', async () => {
   let reads = 0
   const view = setup('views/SignalsView', {
-    getSignals: async () => (++reads === 1 ? [] : [{code:'000001',price:10}]),
-    getSignalsStats: async () => ({total_count:1,brackets:{},readiness:{ready:true,audit_pending:false}})
+    getSignalsSnapshot: async () => (++reads === 1 ? {
+      snapshot_id:null,result_state:'none',response_revision:1,rows:[],
+      counts:{snapshot_total:0,filtered_total:0,brackets:{low:0,mid:0,high:0,top:0}},
+      job:{status:'running',stage:'features'},audit_state:'running',action_permissions:{create_buy:'paused'},blocked_reasons:[]
+    } : {
+      snapshot_id:'S1',result_state:'current',response_revision:2,rows:[{code:'000001',name:'Result',price:10,price_bracket:'low'}],
+      counts:{snapshot_total:1,filtered_total:1,brackets:{low:1,mid:0,high:0,top:0}},
+      job:{status:'succeeded'},audit_state:'passed',action_permissions:{create_buy:'allowed'},blocked_reasons:[]
+    })
   })
   await view.state.loadSignals()
   assert.equal(view.timers.size, 1)
   view.fire()
   await flush()
   assert.equal(view.state.signals.value.length, 1)
+  assert.equal(view.state.stats.value.total_count, 1)
+  view.hooks.unmounted.forEach(fn => fn())
   assert.equal(view.timers.size, 0)
 })
 
