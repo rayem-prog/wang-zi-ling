@@ -17,6 +17,9 @@ class ResultStoreError(RuntimeError):
     """The result database or a stored payload cannot be read safely."""
 
 
+RECAP_ORDER_ACTIONS = frozenset({"买入", "加仓", "清仓", "止盈卖出"})
+
+
 def _timestamp(value, name, *, optional=False):
     if value is None and optional:
         return
@@ -73,6 +76,8 @@ def _validate_payload(payload):
         if any(not isinstance(order[key], str) or (key == "action" and not order[key].strip())
                for key in ("name", "action", "reason", "warning")):
             raise ValueError("order text fields are invalid")
+        if order["action"] not in RECAP_ORDER_ACTIONS:
+            raise ValueError("unsupported order action")
         shares = order["shares"]
         if isinstance(shares, bool) or not isinstance(shares, int) or shares <= 0:
             raise ValueError("order shares must be positive")

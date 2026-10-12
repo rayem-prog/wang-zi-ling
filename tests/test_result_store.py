@@ -219,6 +219,22 @@ def test_stage_rejects_malformed_orders_and_accepts_sell_order(tmp_path):
     assert ResultStore(tmp_path).stage(valid)
 
 
+def test_stage_accepts_recap_actions_and_rejects_unknown_action(tmp_path):
+    order = {"code": "000001", "name": "A", "action": "买入", "shares": 100,
+             "price_ref": 20.0, "limit_low": 19.9, "limit_high": 20.1,
+             "amount": 2000.0, "weight": 0.0, "stop_loss": 19.0,
+             "take_profit": 21.0, "reason": "test", "warning": "test"}
+    store = ResultStore(tmp_path)
+    for action in ("买入", "加仓", "清仓", "止盈卖出"):
+        data = payload()
+        data["orders"] = [dict(order, action=action)]
+        assert store.stage(data)
+    data = payload()
+    data["orders"] = [dict(order, action="launch")]
+    with pytest.raises(ValueError):
+        store.stage(data)
+
+
 def test_corrupt_database_or_payload_raises_read_error(tmp_path):
     store = ResultStore(tmp_path)
     snapshot_id = store.stage(payload())
