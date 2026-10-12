@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 from strategy import risk
+from services.decision_results import operation_frame
 
 from config.settings import Settings, load_settings, settings_version
 from data import db, fetcher, pipeline
@@ -143,8 +144,7 @@ def load_monitor_inputs(settings: Settings) -> tuple[pd.DataFrame, pd.DataFrame,
     order_ready = order_state["ready"]
     orders_file = Path(settings.paths.artifact_dir) / "latest_orders.csv"
     try:
-        orders = (pd.read_csv(orders_file, dtype={"code": str})
-                  if order_ready and orders_file.exists() else pd.DataFrame())
+        orders = operation_frame(settings, order_state, "orders")
         if not orders.empty and not {"code", "action", "limit_low", "limit_high"}.issubset(orders.columns):
             raise ValueError("指令单缺少必要字段")
         if not order_ready:

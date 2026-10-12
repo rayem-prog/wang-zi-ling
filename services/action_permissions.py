@@ -9,11 +9,14 @@ TRADE_OPERATIONS = ("create_buy", "add_position", "export_orders")
 
 def evaluate_action_permissions(result_state: str, *, has_rows: bool,
                                 allow_new_buy: bool | None,
-                                revocation: dict | None = None) -> tuple[dict, list[dict]]:
+                                revocation: dict | None = None,
+                                operation_certified: bool = False, has_orders: bool = False) -> tuple[dict, list[dict]]:
     permissions = {action: "paused" for action in OPERATIONS}
     reasons = []
 
     def reason(code, message, actions):
+        if not actions:
+            return
         reasons.append({"code": code, "message": message, "actions": list(actions)})
 
     if result_state == "revoked":
@@ -30,13 +33,19 @@ def evaluate_action_permissions(result_state: str, *, has_rows: bool,
         permissions["create_buy"] = "forbidden"
         permissions["add_position"] = "forbidden"
         reason("new_buy_forbidden", "当前风控禁止新买入和加仓。", ("create_buy", "add_position"))
+    if result_state == "current" and operation_certified:
+        if has_rows and allow_new_buy is True:
+            permissions["create_buy"] = "allowed"
+            permissions["add_position"] = "allowed"
+        if has_orders:
+            permissions["export_orders"] = "allowed"
     if result_state != "current":
         reason("historical_result", "历史结果仅供回看，不能据此操作。",
                tuple(action for action in TRADE_OPERATIONS if permissions[action] == "paused"))
     elif not has_rows:
         reason("no_candidates", "当前没有可操作的候选标的。",
                tuple(action for action in TRADE_OPERATIONS if permissions[action] == "paused"))
-    else:
+    elif any(permissions[action] == "paused" for action in TRADE_OPERATIONS):
         reason("operation_recheck_required", "操作前需重新核验账户和风控状态。",
                tuple(action for action in TRADE_OPERATIONS if permissions[action] == "paused"))
     return permissions, reasons

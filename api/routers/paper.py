@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from config.settings import load_settings
 from data.health import assess_data_health, recommendation_state
 from strategy import paper
+from services.decision_results import decision_context, DecisionUnavailable, require_candidate
 
 router = APIRouter(prefix="/api/paper", tags=["paper"])
 def _paper_db_path() -> str:
@@ -18,6 +19,7 @@ def _paper_db_path() -> str:
 
 
 class PaperOrderRequest(BaseModel):
+    snapshot_id: str | None = None
     code: str
     name: str = ""
     side: str  # "买入" 或 "卖出"
@@ -33,6 +35,17 @@ def get_account() -> dict[str, Any]:
 
 @router.post("/order")
 def place_order(req: PaperOrderRequest) -> dict[str, Any]:
+    settings = load_settings()
+    if req.snapshot_id and req.side.upper() in ('BUY', '买入'):
+        try:
+            with decision_context(settings, assess_data_health(settings), expected_snapshot_id=req.snapshot_id, for_new_buy=True) as snapshot:
+                require_candidate(snapshot, req.code)
+                return paper.execute_paper_order(path=_paper_db_path(), code=req.code, name=req.name or req.code,
+                    side=req.side, shares=req.shares, price=req.price, order_type=req.order_type)
+        except DecisionUnavailable as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         res = paper.execute_paper_order(
             path=_paper_db_path(),
@@ -76,21 +89,26 @@ def reset_account() -> dict[str, Any]:
 
 
 class AiExecuteRequest(BaseModel):
+    snapshot_id: str | None = None
     risk_pref: str = "balanced"
     recommendations: list[dict[str, Any]] | None = None
 
 
 @router.get("/ai-simulation")
-def get_ai_simulation(risk_pref: str = "balanced") -> dict[str, Any]:
+def get_ai_simulation(risk_pref: str = "balanced", snapshot_id: str | None = None) -> dict[str, Any]:
     settings = load_settings()
-    state = recommendation_state(settings, assess_data_health(settings))
-    if not state["ready"]:
-        raise HTTPException(status_code=409, detail=state["reason"])
     try:
-        return paper.generate_ai_trading_plan(
-            _paper_db_path(), risk_pref=risk_pref,
-            recommendation_path=str(Path(settings.paths.artifact_dir) / "recommendations.csv"),
-        )
+        with decision_context(settings, assess_data_health(settings), expected_snapshot_id=snapshot_id, for_new_buy=True) as snapshot:
+            plan = paper.generate_ai_trading_plan(
+                _paper_db_path(), risk_pref=risk_pref,
+                recommendation_path=str(Path(settings.paths.artifact_dir) / "recommendations.csv"),
+                **({"recommendation_rows": snapshot['rows']} if snapshot else {}),
+            )
+            if snapshot:
+                plan['snapshot_id'] = snapshot['snapshot_id']
+            return plan
+    except DecisionUnavailable as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI 自主模拟推演失败: {e}")
 
@@ -98,15 +116,15 @@ def get_ai_simulation(risk_pref: str = "balanced") -> dict[str, Any]:
 @router.post("/ai-simulation/execute")
 def execute_ai_simulation(req: AiExecuteRequest | None = None) -> dict[str, Any]:
     settings = load_settings()
-    state = recommendation_state(settings, assess_data_health(settings))
-    if not state["ready"]:
-        raise HTTPException(status_code=409, detail=state["reason"])
     try:
-        risk_pref = req.risk_pref if req else "balanced"
-        recs = req.recommendations if req else None
-        return paper.execute_ai_trading_plan(
-            _paper_db_path(), recommendations=recs, risk_pref=risk_pref,
-            recommendation_path=str(Path(settings.paths.artifact_dir) / "recommendations.csv"),
-        )
+        with decision_context(settings, assess_data_health(settings), expected_snapshot_id=req.snapshot_id if req else None, for_new_buy=True) as snapshot:
+            return paper.execute_ai_trading_plan(
+                _paper_db_path(), recommendations=req.recommendations if req else None,
+                risk_pref=req.risk_pref if req else "balanced",
+                recommendation_path=str(Path(settings.paths.artifact_dir) / "recommendations.csv"),
+                **({"recommendation_rows": snapshot['rows']} if snapshot else {}),
+            )
+    except DecisionUnavailable as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI 自主建仓模拟执行失败: {e}")

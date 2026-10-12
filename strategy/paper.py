@@ -336,7 +336,8 @@ def paper_summary(path: str, prices: dict[str, float]) -> dict:
 
 
 def generate_ai_trading_plan(path: str, risk_pref: str = "balanced",
-                             recommendation_path: str = "artifacts/recommendations.csv") -> dict[str, Any]:
+                             recommendation_path: str = "artifacts/recommendations.csv",
+                             recommendation_rows: list[dict] | None = None) -> dict[str, Any]:
     """根据模拟账户当前可用现金、总资产及选股多因子综合评分，生成 AI 自主建仓模拟推演（价格区间与推荐股数）。"""
     settings = load_settings()
     policy = risk.current_policy(settings)
@@ -358,10 +359,11 @@ def generate_ai_trading_plan(path: str, risk_pref: str = "balanced",
     candidates = []
     current_prices = {}
     rec_file = Path(recommendation_path)
-    if rec_file.exists():
+    if recommendation_rows is not None or rec_file.exists():
         try:
             import pandas as pd
-            df = pd.read_csv(rec_file, dtype={"code": str})
+            df = (pd.DataFrame(recommendation_rows) if recommendation_rows is not None
+                  else pd.read_csv(rec_file, dtype={"code": str}))
             if not df.empty and "code" in df.columns:
                 current_prices = {str(r["code"]).zfill(6): risk.positive(r.get("price")) for _, r in df.iterrows() if risk.positive(r.get("price"))}
                 for _, r in df.head(8).iterrows():
@@ -480,12 +482,13 @@ def execute_ai_trading_plan(
     recommendations: list[dict] | None = None,
     risk_pref: str = "balanced",
     recommendation_path: str = "artifacts/recommendations.csv",
+    recommendation_rows: list[dict] | None = None,
 ) -> dict[str, Any]:
     """AI 一键自主撮合执行模拟建仓。"""
     if not risk.buying_allowed(risk.current_policy()):
         return {"status": "blocked", "executed_count": 0, "details": [], "account": get_paper_account(path)}
     requested = recommendations
-    plan = generate_ai_trading_plan(path, risk_pref, recommendation_path)
+    plan = generate_ai_trading_plan(path, risk_pref, recommendation_path, recommendation_rows=recommendation_rows)
     recommendations = plan.get("recommendations", [])
     if requested is not None:
         requested_shares = {str(item.get("code", "")).zfill(6): risk.positive(item.get("recommended_shares")) for item in requested}

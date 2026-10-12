@@ -130,8 +130,11 @@ def build_snapshot_response(view: dict, settings, *, now: datetime, filters=None
     else:
         empty_kind = None
     permissions, reasons = evaluate_action_permissions(
-        state, has_rows=bool(all_rows),
-        allow_new_buy=snapshot.get("allow_new_buy") if snapshot else None,
+        state, has_rows=bool(visible),
+        allow_new_buy=(certificate.get("allow_new_buy") if state == "current" and isinstance(certificate.get("allow_new_buy"), bool)
+                       else snapshot.get("allow_new_buy") if snapshot else None),
+        operation_certified=state == "current" and isinstance(certificate.get("allow_new_buy"), bool),
+        has_orders=bool(snapshot.get("orders")) if snapshot else False,
         revocation=revocation,
     )
     paused_actions = [action for action in ("create_buy", "add_position", "export_orders")

@@ -10,6 +10,7 @@ from typing import Any
 import pandas as pd
 from fastapi import APIRouter, HTTPException
 
+from services.decision_results import operation_frame
 from config.settings import load_settings
 from strategy import risk
 from data import db, fetcher
@@ -143,9 +144,9 @@ def get_intraday_decisions() -> dict[str, Any]:
     if not order_ready:
         errors.append(f"指令单暂停: {order_state['reason']}")
     orders_path = Path(settings.paths.artifact_dir) / "latest_orders.csv"
-    if order_ready and risk.buying_allowed(risk.current_policy(settings)) and orders_path.exists():
+    if order_ready and risk.buying_allowed(risk.current_policy(settings)):
         try:
-            ord_df = pd.read_csv(orders_path, dtype={"code": str})
+            ord_df = operation_frame(settings, order_state, "orders")
             if not ord_df.empty:
                 ord_df["code"] = ord_df["code"].astype(str).str.zfill(6)
                 ord_codes = ord_df["code"].tolist()
@@ -214,7 +215,8 @@ def get_intraday_decisions() -> dict[str, Any]:
 def get_intraday_radar() -> list[dict[str, Any]]:
     """盘中实时异动机会扫描（多头动量与突破标的）。"""
     settings = load_settings()
-    if not recommendation_state(settings, health_cache.get(settings))["ready"]:
+    rec_state = recommendation_state(settings, health_cache.get(settings))
+    if not rec_state["ready"]:
         return []
     radar_candidates = []
 
@@ -223,13 +225,9 @@ def get_intraday_radar() -> list[dict[str, Any]]:
     with sqlite3.connect(settings.data.db_path) as conn:
         if conn.execute("SELECT 1 FROM sqlite_master WHERE name='user_watchlist'").fetchone():
             watch_pool.update(row[0] for row in conn.execute("SELECT code FROM user_watchlist"))
-    rec_path = Path(settings.paths.artifact_dir) / "recommendations.csv"
-    if rec_path.exists():
-        try:
-            rdf = pd.read_csv(rec_path, dtype={"code": str})
-            watch_pool.update(rdf["code"].astype(str).str.zfill(6).tolist())
-        except Exception:
-            pass
+    rdf = operation_frame(settings, rec_state)
+    if not rdf.empty:
+        watch_pool.update(rdf["code"].astype(str).str.zfill(6).tolist())
 
     if not watch_pool:
         return []

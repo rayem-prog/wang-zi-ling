@@ -12,6 +12,9 @@ from api.ws import get_market_trading_status
 from config.settings import load_settings, settings_version
 from api.health_cache import health_cache
 from api.jobs import daily_jobs
+from services.result_store import ResultStore, ResultStoreError
+from services.result_contract import build_snapshot_response
+from data.timeliness import exchange_now
 from data import db
 from data.health import assess_data_health, recommendation_state
 
@@ -57,8 +60,27 @@ def evaluate_daemon_status(hb: dict | None, max_delay_seconds: int = 180) -> dic
 @router.get("")
 def get_system_status() -> dict[str, Any]:
     settings = load_settings()
-    data_health = health_cache.get(settings)
-    recommendation = recommendation_state(settings, data_health)
+    try:
+        view = ResultStore(settings.paths.artifact_dir).read_view()
+        response = build_snapshot_response(view, settings, now=exchange_now())
+        audit = view.get('audit') or {}
+        data_health = dict(audit.get('health') or {})
+        data_health.update(ready=response['result_state'] == 'current',
+                           health_cache_stale=response['audit_state'] != 'passed',
+                           health_checked_at=audit.get('checked_at'))
+        if not data_health.get('reason') and not data_health['ready']:
+            data_health['reason'] = '后台核验尚未完成或认证已过期'
+        recommendation = dict(ready=response['result_state'] == 'current',
+            reason='；'.join(item['message'] for item in response['blocked_reasons']),
+            result_state=response['result_state'], snapshot_id=response['snapshot_id'],
+            trade_date=(view.get('snapshot') or {}).get('trade_date'),
+            generated_at=response['generated_at'], action_permissions=response['action_permissions'])
+        rec_count = response['counts']['snapshot_total']
+        orders_count = len((view.get('snapshot') or {}).get('orders', [])) if recommendation['ready'] else 0
+    except ResultStoreError as exc:
+        data_health = dict(ready=False, health_cache_stale=True, reason=f'结果库暂时不可读: {exc}')
+        recommendation = dict(ready=False, reason=data_health['reason'], result_state='unknown')
+        rec_count = orders_count = 0
     try:
         hb = db.get_latest_heartbeat(settings.data.db_path)
     except Exception:
@@ -91,25 +113,6 @@ def get_system_status() -> dict[str, Any]:
             "allow_new_buy": True,
             "date": "",
         }
-
-    # 文件统计
-    rec_count = 0
-    rec_p = Path(settings.paths.artifact_dir) / "recommendations.csv"
-    if recommendation["ready"] and rec_p.exists():
-        try:
-            import pandas as pd
-            rec_count = len(pd.read_csv(rec_p))
-        except Exception:
-            pass
-
-    orders_count = 0
-    ord_p = Path(settings.paths.artifact_dir) / "latest_orders.csv"
-    if recommendation["ready"] and ord_p.exists():
-        try:
-            import pandas as pd
-            orders_count = len(pd.read_csv(ord_p))
-        except Exception:
-            pass
 
     return {
         "server_time": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

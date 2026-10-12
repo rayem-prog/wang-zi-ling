@@ -270,6 +270,15 @@ def assess_data_health(
 
 def recommendation_state(settings: Settings, health: dict) -> dict:
     """旧推荐无元数据，或元数据日期与行情不符时不得作为有效信号。"""
+    # Published snapshots own decision validity; display uses a separate contract.
+    from services.decision_results import snapshot_operation_state
+    from services.result_store import ResultStoreError
+    try:
+        published = snapshot_operation_state(settings, health)
+    except (ResultStoreError, ValueError) as exc:
+        return {"ready": False, "reason": f"结果状态不可确认: {exc}", "trade_date": None}
+    if published is not None:
+        return published
     result = {"ready": False, "reason": "", "trade_date": None,
               "source": "unknown", "generated_at": "", "coverage": 0.0}
     if not health.get("ready"):
