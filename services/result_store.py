@@ -60,6 +60,32 @@ def _validate_payload(payload):
         raise ValueError("selection.funnel must be a list")
     if not isinstance(payload["rows"], list) or not isinstance(payload.get("orders", []), list):
         raise ValueError("rows and orders must be lists")
+    for order in payload.get("orders", []):
+        if not isinstance(order, dict):
+            raise ValueError("order must be an object")
+        required = ("code", "name", "action", "shares", "price_ref", "limit_low",
+                    "limit_high", "amount", "weight", "stop_loss", "take_profit",
+                    "reason", "warning")
+        if any(key not in order for key in required):
+            raise ValueError("order is missing required fields")
+        if not isinstance(order["code"], str) or re.fullmatch(r"[0-9]{6}", order["code"]) is None:
+            raise ValueError("order code must be a six-digit string")
+        if any(not isinstance(order[key], str) or (key == "action" and not order[key].strip())
+               for key in ("name", "action", "reason", "warning")):
+            raise ValueError("order text fields are invalid")
+        shares = order["shares"]
+        if isinstance(shares, bool) or not isinstance(shares, int) or shares <= 0:
+            raise ValueError("order shares must be positive")
+        for key in ("price_ref", "limit_low", "limit_high", "amount", "weight",
+                    "stop_loss", "take_profit"):
+            value = order[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"order {key} must be finite")
+        if any(order[key] <= 0 for key in ("price_ref", "limit_low", "limit_high", "amount",
+                                             "stop_loss", "take_profit")):
+            raise ValueError("order prices and amount must be positive")
+        if order["weight"] < 0 or order["limit_low"] > order["limit_high"]:
+            raise ValueError("order weight or limit range is invalid")
     seen = set()
     ranks = set()
     for row in payload["rows"]:
@@ -87,6 +113,7 @@ def _validate_payload(payload):
         ranks.add(rank)
     if ranks != set(range(1, len(payload["rows"]) + 1)):
         raise ValueError("ranks must cover the snapshot rows")
+    previous_output = None
     for stage in payload["selection"]["funnel"]:
         if not isinstance(stage, dict) or not isinstance(stage.get("name"), str):
             raise ValueError("invalid funnel stage")
@@ -98,6 +125,13 @@ def _validate_payload(payload):
         if any(isinstance(v, bool) or not isinstance(v, int) or v < 0
                for v in stage["excluded_by_reason"].values()):
             raise ValueError("invalid funnel exclusions")
+        if sum(stage["excluded_by_reason"].values()) != stage["input"] - stage["output"]:
+            raise ValueError("funnel exclusions do not explain the count")
+        if previous_output is not None and stage["input"] != previous_output:
+            raise ValueError("funnel stages are disconnected")
+        previous_output = stage["output"]
+    if previous_output is not None and previous_output != len(payload["rows"]):
+        raise ValueError("funnel final count differs from rows")
     try:
         _json(payload)
     except (TypeError, ValueError) as exc:
@@ -137,7 +171,7 @@ INSERT OR IGNORE INTO runtime_state (id,response_revision) VALUES (1,0);
 
 class ResultStore:
     def __init__(self, artifact_dir):
-        self.path = Path(artifact_dir) / "results.db"
+        self.path = (Path(artifact_dir) / "results.db").resolve()
 
     @contextmanager
     def _write(self):
@@ -178,11 +212,23 @@ class ResultStore:
                              (snapshot_id,)).fetchone()
             if row is None or row[2] != "staged":
                 raise ValueError("snapshot is missing or not staged")
+            if hashlib.sha256(row[0].encode("utf-8")).hexdigest() != row[1]:
+                raise ResultStoreError("staged result payload checksum mismatch")
             payload = json.loads(row[0])
             if expected_versions is not None and payload["versions"] != expected_versions:
                 raise ValueError("snapshot input versions changed")
-            if db.execute("SELECT 1 FROM result_revocations WHERE payload_sha256=?", (row[1],)).fetchone():
-                raise ValueError("revoked result identity cannot be republished")
+            revoked_payloads = db.execute(
+                "SELECT s.canonical_payload,s.payload_sha256 FROM result_revocations r "
+                "JOIN result_snapshots s ON s.snapshot_id=r.snapshot_id"
+            ).fetchall()
+            for revoked_json, revoked_digest in revoked_payloads:
+                if hashlib.sha256(revoked_json.encode("utf-8")).hexdigest() != revoked_digest:
+                    raise ResultStoreError("revoked result payload checksum mismatch")
+                revoked_versions = json.loads(revoked_json)["versions"]
+                # A source revocation covers every result generated from the same frozen data.
+                # Corrected inputs must carry a new data version before they can publish.
+                if revoked_versions["data"] == payload["versions"]["data"]:
+                    raise ValueError("revoked data version cannot be republished")
             if job_id is not None:
                 if row[3] is not None and row[3] != job_id:
                     raise ValueError("snapshot belongs to another job")

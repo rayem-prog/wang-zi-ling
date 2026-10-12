@@ -143,3 +143,24 @@ def test_defense_forbids_new_buy_and_audit_error_stays_visible():
 def test_invalid_filters_are_rejected(filters):
     with pytest.raises(ValueError):
         build_snapshot_response(view(), Settings(), now=NOW, filters=filters)
+
+
+def test_default_permission_explanations_are_chinese():
+    settings = Settings()
+    states = [
+        {"snapshot": None, "revocation": None, "audit": None, "job": None,
+         "response_revision": 0},
+        view(settings),
+    ]
+    historical = view(settings)
+    historical["snapshot"]["legacy_import"] = True
+    states.append(historical)
+    empty = view(settings, [])
+    states.append(empty)
+    defensive = view(settings)
+    defensive["snapshot"]["allow_new_buy"] = False
+    states.append(defensive)
+    for state in states:
+        response = build_snapshot_response(state, settings, now=NOW)
+        for reason in response["blocked_reasons"]:
+            assert any("\u4e00" <= char <= "\u9fff" for char in reason["message"])

@@ -19,24 +19,24 @@ def evaluate_action_permissions(result_state: str, *, has_rows: bool,
     if result_state == "revoked":
         permissions = {action: "forbidden" for action in OPERATIONS}
         reason((revocation or {}).get("code", "revoked"),
-               (revocation or {}).get("message", "This result was revoked."), OPERATIONS)
+               (revocation or {}).get("message", "该结果已撤销。"), OPERATIONS)
         return permissions, reasons
     if result_state == "none":
-        reason("no_snapshot", "No result has been published.", OPERATIONS)
+        reason("no_snapshot", "尚无已发布结果。", OPERATIONS)
         return permissions, reasons
 
     permissions["view_candidates"] = "allowed"
     if allow_new_buy is False:
         permissions["create_buy"] = "forbidden"
         permissions["add_position"] = "forbidden"
-        reason("new_buy_forbidden", "Risk policy forbids new buys.", ("create_buy", "add_position"))
+        reason("new_buy_forbidden", "当前风控禁止新买入和加仓。", ("create_buy", "add_position"))
     if result_state != "current":
-        reason("historical_result", "Historical results are for review only.",
+        reason("historical_result", "历史结果仅供回看，不能据此操作。",
                tuple(action for action in TRADE_OPERATIONS if permissions[action] == "paused"))
     elif not has_rows:
-        reason("no_candidates", "No candidates are available.",
+        reason("no_candidates", "当前没有可操作的候选标的。",
                tuple(action for action in TRADE_OPERATIONS if permissions[action] == "paused"))
     else:
-        reason("operation_recheck_required", "Current account and risk checks are required.",
+        reason("operation_recheck_required", "操作前需重新核验账户和风控状态。",
                tuple(action for action in TRADE_OPERATIONS if permissions[action] == "paused"))
     return permissions, reasons

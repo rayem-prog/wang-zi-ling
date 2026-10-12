@@ -41,6 +41,22 @@ def test_read_does_not_initialize_and_stage_is_invisible(tmp_path):
     assert snapshot_id
 
 
+def test_relative_artifact_path_survives_write_and_cwd_change(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    store = ResultStore("artifacts")
+    assert store.read_view()["snapshot"] is None
+    assert not (tmp_path / "artifacts").exists()
+    snapshot_id = store.stage(payload())
+    store.publish(snapshot_id)
+    store.save_job({"job_id": "relative-job", "status": "queued", "stage": "queued"})
+    other = tmp_path / "other"
+    other.mkdir()
+    monkeypatch.chdir(other)
+    assert store.read_view()["snapshot"]["snapshot_id"] == snapshot_id
+    assert store.get_job("relative-job")["status"] == "queued"
+    assert ResultStore(tmp_path / "artifacts").read_view()["snapshot"]["snapshot_id"] == snapshot_id
+
+
 def test_publish_changes_head_and_job_atomically_across_instances(tmp_path):
     store = ResultStore(tmp_path)
     first = store.stage(payload())
@@ -100,6 +116,35 @@ def test_revocation_is_sticky_for_same_identity_and_keeps_head(tmp_path):
     assert ResultStore(tmp_path).read_view()["response_revision"] == revision
 
 
+def test_revoked_input_versions_cannot_be_republished_with_new_metadata_or_rows(tmp_path):
+    store = ResultStore(tmp_path)
+    first = store.stage(payload())
+    store.publish(first)
+    store.revoke(first, {"code": "source_revoked", "message": "source withdrawn"})
+    changed = payload(rows=[])
+    changed["generated_at"] = "2026-10-12T10:00:00+08:00"
+    changed["trade_date"] = "2026-10-13"
+    duplicate = store.stage(changed)
+    with pytest.raises((ValueError, ResultStoreError)):
+        store.publish(duplicate)
+    changed["versions"]["data"] = "d2"
+    corrected = store.stage(changed)
+    store.publish(corrected)
+    assert store.read_view()["snapshot"]["snapshot_id"] == corrected
+
+
+def test_publish_rejects_tampered_staged_payload_before_changing_head(tmp_path):
+    store = ResultStore(tmp_path)
+    first = store.stage(payload())
+    store.publish(first)
+    staged = store.stage(payload(rows=[]))
+    with sqlite3.connect(tmp_path / "results.db") as db:
+        db.execute("UPDATE result_snapshots SET canonical_payload='{}' WHERE snapshot_id=?", (staged,))
+    with pytest.raises((ValueError, ResultStoreError)):
+        store.publish(staged)
+    assert store.read_view()["snapshot"]["snapshot_id"] == first
+
+
 def test_rejected_publish_preserves_old_head(tmp_path):
     store = ResultStore(tmp_path)
     first = store.stage(payload())
@@ -132,6 +177,46 @@ def test_audit_rejects_incomplete_certificate(tmp_path):
     with pytest.raises(ValueError):
         store.record_audit({"state": "passed", "data_version": "d1", "ready": True})
     assert store.read_view()["audit"] is None
+
+
+@pytest.mark.parametrize("funnel", [
+    [{"name": "a", "input": 3, "output": 2, "excluded_by_reason": {"bad": 2}}],
+    [{"name": "a", "input": 3, "output": 2, "excluded_by_reason": {"bad": 1}},
+     {"name": "b", "input": 3, "output": 1, "excluded_by_reason": {"bad": 2}}],
+    [{"name": "a", "input": 3, "output": 2, "excluded_by_reason": {"bad": 1}}],
+])
+def test_stage_rejects_false_funnel_evidence(tmp_path, funnel):
+    data = payload()
+    data["selection"]["funnel"] = funnel
+    with pytest.raises(ValueError):
+        ResultStore(tmp_path).stage(data)
+
+
+def test_stage_accepts_continuous_funnel_ending_at_row_count(tmp_path):
+    data = payload()
+    data["selection"]["funnel"] = [
+        {"name": "a", "input": 3, "output": 2, "excluded_by_reason": {"bad": 1}},
+        {"name": "b", "input": 2, "output": 1, "excluded_by_reason": {"bad": 1}},
+    ]
+    snapshot_id = ResultStore(tmp_path).stage(data)
+    assert snapshot_id
+
+
+def test_stage_rejects_malformed_orders_and_accepts_sell_order(tmp_path):
+    sell = {"code": "000001", "name": "A", "action": "止盈卖出", "shares": 100,
+            "price_ref": 20.0, "limit_low": 20.0, "limit_high": 20.2,
+            "amount": 2000.0, "weight": 0.0, "stop_loss": 19.0,
+            "take_profit": 20.0, "reason": "target", "warning": "sell"}
+    for invalid in (1, {"code": "000001", "action": "买入"},
+                    dict(sell, price_ref=float("nan")), dict(sell, limit_high=19.0),
+                    dict(sell, shares=0)):
+        data = payload()
+        data["orders"] = [invalid]
+        with pytest.raises((ValueError, TypeError)):
+            ResultStore(tmp_path).stage(data)
+    valid = payload()
+    valid["orders"] = [sell]
+    assert ResultStore(tmp_path).stage(valid)
 
 
 def test_corrupt_database_or_payload_raises_read_error(tmp_path):
