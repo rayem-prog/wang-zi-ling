@@ -1,0 +1,541 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "snapshot_id",
+    "data_as_of",
+    "generated_at",
+    "versions",
+    "rows",
+    "counts",
+    "result_state",
+    "audit_state",
+    "audit",
+    "job",
+    "action_permissions",
+    "blocked_reasons",
+    "empty_kind",
+    "selection",
+    "response_revision"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "snapshot_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "data_as_of": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "generated_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "versions": {
+      "type": "object",
+      "required": [
+        "data",
+        "strategy",
+        "parameters"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "strategy": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parameters": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "price",
+          "score_blend",
+          "price_bracket",
+          "rank"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "score_blend": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "price_bracket": {
+            "enum": [
+              "low",
+              "mid",
+              "high",
+              "top"
+            ]
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "required": [
+        "snapshot_total",
+        "filtered_total",
+        "brackets"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "snapshot_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "filtered_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "brackets": {
+          "type": "object",
+          "required": [
+            "low",
+            "mid",
+            "high",
+            "top"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "low": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mid": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "high": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "top": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "result_state": {
+      "enum": [
+        "none",
+        "current",
+        "historical",
+        "revoked"
+      ]
+    },
+    "audit_state": {
+      "enum": [
+        "unknown",
+        "pending",
+        "running",
+        "passed",
+        "failed"
+      ]
+    },
+    "audit": {
+      "type": "object",
+      "required": [
+        "data_version",
+        "checked_at",
+        "valid_until",
+        "error"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "data_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "checked_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "valid_until": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "code",
+                "message",
+                "retryable"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "retryable": {
+                  "type": "boolean"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "job": {
+      "type": "object",
+      "required": [
+        "job_id",
+        "status",
+        "stage",
+        "created_at",
+        "started_at",
+        "finished_at",
+        "heartbeat_at",
+        "error",
+        "data_only"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "idle",
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "interrupted"
+          ]
+        },
+        "stage": {
+          "enum": [
+            null,
+            "queued",
+            "fetch",
+            "audit",
+            "features",
+            "train",
+            "score",
+            "risk",
+            "validate",
+            "persist",
+            "publish",
+            "complete"
+          ]
+        },
+        "created_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "started_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "finished_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "heartbeat_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "code",
+                "message",
+                "retryable"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "retryable": {
+                  "type": "boolean"
+                }
+              }
+            }
+          ]
+        },
+        "data_only": {
+          "type": "boolean"
+        }
+      }
+    },
+    "action_permissions": {
+      "type": "object",
+      "required": [
+        "view_candidates",
+        "create_buy",
+        "add_position",
+        "export_orders"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "view_candidates": {
+          "enum": [
+            "allowed",
+            "paused",
+            "forbidden"
+          ]
+        },
+        "create_buy": {
+          "enum": [
+            "allowed",
+            "paused",
+            "forbidden"
+          ]
+        },
+        "add_position": {
+          "enum": [
+            "allowed",
+            "paused",
+            "forbidden"
+          ]
+        },
+        "export_orders": {
+          "enum": [
+            "allowed",
+            "paused",
+            "forbidden"
+          ]
+        }
+      }
+    },
+    "blocked_reasons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "actions"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actions": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "view_candidates",
+                "create_buy",
+                "add_position",
+                "export_orders"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "empty_kind": {
+      "enum": [
+        null,
+        "no_snapshot",
+        "screened_out",
+        "filter_no_match",
+        "revoked"
+      ]
+    },
+    "selection": {
+      "type": "object",
+      "required": [
+        "filters",
+        "funnel"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "filters": {
+          "type": "object",
+          "required": [
+            "bracket",
+            "min_price",
+            "max_price",
+            "sort_by",
+            "codes",
+            "q"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "bracket": {
+              "enum": [
+                "all",
+                "low",
+                "mid",
+                "high",
+                "top"
+              ]
+            },
+            "min_price": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "max_price": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "sort_by": {
+              "enum": [
+                "score",
+                "price_asc",
+                "price_desc",
+                "hand_cost_asc"
+              ]
+            },
+            "codes": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "q": {
+              "type": "string"
+            }
+          }
+        },
+        "funnel": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "input",
+              "output",
+              "excluded_by_reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "input": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "output": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "excluded_by_reason": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "response_revision": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Work package A snapshot response v1 (design only)"
+}

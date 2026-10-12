@@ -1,0 +1,761 @@
+{
+  "valid": {
+    "schema_version": 1,
+    "snapshot_id": "S1",
+    "data_as_of": "2026-10-09T15:00:00+08:00",
+    "generated_at": "2026-10-09T16:20:00+08:00",
+    "versions": {
+      "data": "D1",
+      "strategy": "strategy-model-sha256-v1",
+      "parameters": "parameters-sha256-v1"
+    },
+    "rows": [
+      {
+        "code": "000001",
+        "name": "固定样本",
+        "price": 10.0,
+        "hand_cost": 1000,
+        "score_blend": 85.0,
+        "score_lgb": 80.0,
+        "score_linear": 90.0,
+        "price_bracket": "low",
+        "rank": 1,
+        "why_recommended": {
+          "rationale": "固定验收样本，不是实际推荐"
+        }
+      }
+    ],
+    "counts": {
+      "snapshot_total": 1,
+      "filtered_total": 1,
+      "brackets": {
+        "low": 1,
+        "mid": 0,
+        "high": 0,
+        "top": 0
+      }
+    },
+    "result_state": "current",
+    "audit_state": "passed",
+    "audit": {
+      "data_version": "D1",
+      "checked_at": "2026-10-12T09:59:00+08:00",
+      "valid_until": "2026-10-12T16:10:00+08:00",
+      "error": null
+    },
+    "job": {
+      "job_id": "J1",
+      "status": "succeeded",
+      "stage": "complete",
+      "created_at": "2026-10-09T16:10:00+08:00",
+      "started_at": "2026-10-09T16:10:01+08:00",
+      "finished_at": "2026-10-09T16:20:00+08:00",
+      "heartbeat_at": "2026-10-09T16:20:00+08:00",
+      "error": null,
+      "data_only": false
+    },
+    "action_permissions": {
+      "view_candidates": "allowed",
+      "create_buy": "allowed",
+      "add_position": "allowed",
+      "export_orders": "allowed"
+    },
+    "blocked_reasons": [],
+    "empty_kind": null,
+    "selection": {
+      "filters": {
+        "bracket": "all",
+        "min_price": null,
+        "max_price": null,
+        "sort_by": "score",
+        "codes": null,
+        "q": ""
+      },
+      "funnel": [
+        {
+          "name": "数据可用",
+          "input": 3,
+          "output": 2,
+          "excluded_by_reason": {
+            "insufficient_history": 1
+          }
+        },
+        {
+          "name": "候选筛选",
+          "input": 2,
+          "output": 1,
+          "excluded_by_reason": {
+            "score_below_threshold": 1
+          }
+        }
+      ]
+    },
+    "response_revision": 10
+  },
+  "updating": {
+    "schema_version": 1,
+    "snapshot_id": "S1",
+    "data_as_of": "2026-10-09T15:00:00+08:00",
+    "generated_at": "2026-10-09T16:20:00+08:00",
+    "versions": {
+      "data": "D1",
+      "strategy": "strategy-model-sha256-v1",
+      "parameters": "parameters-sha256-v1"
+    },
+    "rows": [
+      {
+        "code": "000001",
+        "name": "固定样本",
+        "price": 10.0,
+        "hand_cost": 1000,
+        "score_blend": 85.0,
+        "score_lgb": 80.0,
+        "score_linear": 90.0,
+        "price_bracket": "low",
+        "rank": 1,
+        "why_recommended": {
+          "rationale": "固定验收样本，不是实际推荐"
+        }
+      }
+    ],
+    "counts": {
+      "snapshot_total": 1,
+      "filtered_total": 1,
+      "brackets": {
+        "low": 1,
+        "mid": 0,
+        "high": 0,
+        "top": 0
+      }
+    },
+    "result_state": "historical",
+    "audit_state": "running",
+    "audit": {
+      "data_version": "D1",
+      "checked_at": "2026-10-12T09:59:00+08:00",
+      "valid_until": "2026-10-12T09:59:00+08:00",
+      "error": null
+    },
+    "job": {
+      "job_id": "J2",
+      "status": "running",
+      "stage": "audit",
+      "created_at": "2026-10-12T10:00:00+08:00",
+      "started_at": "2026-10-12T10:00:01+08:00",
+      "finished_at": null,
+      "heartbeat_at": "2026-10-12T10:00:05+08:00",
+      "error": null,
+      "data_only": false
+    },
+    "action_permissions": {
+      "view_candidates": "allowed",
+      "create_buy": "paused",
+      "add_position": "paused",
+      "export_orders": "paused"
+    },
+    "blocked_reasons": [
+      {
+        "code": "AUDIT_PENDING",
+        "message": "核验中，旧结果仅供回看",
+        "actions": [
+          "create_buy",
+          "add_position",
+          "export_orders"
+        ]
+      }
+    ],
+    "empty_kind": null,
+    "selection": {
+      "filters": {
+        "bracket": "all",
+        "min_price": null,
+        "max_price": null,
+        "sort_by": "score",
+        "codes": null,
+        "q": ""
+      },
+      "funnel": [
+        {
+          "name": "数据可用",
+          "input": 3,
+          "output": 2,
+          "excluded_by_reason": {
+            "insufficient_history": 1
+          }
+        },
+        {
+          "name": "候选筛选",
+          "input": 2,
+          "output": 1,
+          "excluded_by_reason": {
+            "score_below_threshold": 1
+          }
+        }
+      ]
+    },
+    "response_revision": 11
+  },
+  "failed": {
+    "schema_version": 1,
+    "snapshot_id": "S1",
+    "data_as_of": "2026-10-09T15:00:00+08:00",
+    "generated_at": "2026-10-09T16:20:00+08:00",
+    "versions": {
+      "data": "D1",
+      "strategy": "strategy-model-sha256-v1",
+      "parameters": "parameters-sha256-v1"
+    },
+    "rows": [
+      {
+        "code": "000001",
+        "name": "固定样本",
+        "price": 10.0,
+        "hand_cost": 1000,
+        "score_blend": 85.0,
+        "score_lgb": 80.0,
+        "score_linear": 90.0,
+        "price_bracket": "low",
+        "rank": 1,
+        "why_recommended": {
+          "rationale": "固定验收样本，不是实际推荐"
+        }
+      }
+    ],
+    "counts": {
+      "snapshot_total": 1,
+      "filtered_total": 1,
+      "brackets": {
+        "low": 1,
+        "mid": 0,
+        "high": 0,
+        "top": 0
+      }
+    },
+    "result_state": "historical",
+    "audit_state": "failed",
+    "audit": {
+      "data_version": "D1",
+      "checked_at": "2026-10-12T09:59:00+08:00",
+      "valid_until": "2026-10-12T09:59:00+08:00",
+      "error": {
+        "code": "SOURCE_UNAVAILABLE",
+        "message": "行情源连接失败，核验未完成",
+        "retryable": true
+      }
+    },
+    "job": {
+      "job_id": "J2",
+      "status": "failed",
+      "stage": "audit",
+      "created_at": "2026-10-12T10:00:00+08:00",
+      "started_at": "2026-10-12T10:00:01+08:00",
+      "finished_at": "2026-10-12T10:01:00+08:00",
+      "heartbeat_at": "2026-10-12T10:00:05+08:00",
+      "error": {
+        "code": "SOURCE_UNAVAILABLE",
+        "message": "行情源连接失败，核验未完成",
+        "retryable": true
+      },
+      "data_only": false
+    },
+    "action_permissions": {
+      "view_candidates": "allowed",
+      "create_buy": "paused",
+      "add_position": "paused",
+      "export_orders": "paused"
+    },
+    "blocked_reasons": [
+      {
+        "code": "AUDIT_FAILED",
+        "message": "行情源连接失败，核验未完成",
+        "actions": [
+          "create_buy",
+          "add_position",
+          "export_orders"
+        ]
+      }
+    ],
+    "empty_kind": null,
+    "selection": {
+      "filters": {
+        "bracket": "all",
+        "min_price": null,
+        "max_price": null,
+        "sort_by": "score",
+        "codes": null,
+        "q": ""
+      },
+      "funnel": [
+        {
+          "name": "数据可用",
+          "input": 3,
+          "output": 2,
+          "excluded_by_reason": {
+            "insufficient_history": 1
+          }
+        },
+        {
+          "name": "候选筛选",
+          "input": 2,
+          "output": 1,
+          "excluded_by_reason": {
+            "score_below_threshold": 1
+          }
+        }
+      ]
+    },
+    "response_revision": 12
+  },
+  "first_start": {
+    "schema_version": 1,
+    "snapshot_id": null,
+    "data_as_of": null,
+    "generated_at": null,
+    "versions": {
+      "data": null,
+      "strategy": null,
+      "parameters": null
+    },
+    "rows": [],
+    "counts": {
+      "snapshot_total": 0,
+      "filtered_total": 0,
+      "brackets": {
+        "low": 0,
+        "mid": 0,
+        "high": 0,
+        "top": 0
+      }
+    },
+    "result_state": "none",
+    "audit_state": "unknown",
+    "audit": {
+      "data_version": null,
+      "checked_at": null,
+      "valid_until": null,
+      "error": null
+    },
+    "job": {
+      "job_id": null,
+      "status": "idle",
+      "stage": null,
+      "created_at": null,
+      "started_at": null,
+      "finished_at": null,
+      "heartbeat_at": null,
+      "error": null,
+      "data_only": false
+    },
+    "action_permissions": {
+      "view_candidates": "paused",
+      "create_buy": "paused",
+      "add_position": "paused",
+      "export_orders": "paused"
+    },
+    "blocked_reasons": [
+      {
+        "code": "NO_SNAPSHOT",
+        "message": "尚未生成结果，请启动初始化",
+        "actions": [
+          "create_buy",
+          "add_position",
+          "export_orders"
+        ]
+      },
+      {
+        "code": "NO_SNAPSHOT",
+        "message": "尚无可显示候选",
+        "actions": [
+          "view_candidates"
+        ]
+      }
+    ],
+    "empty_kind": "no_snapshot",
+    "selection": {
+      "filters": {
+        "bracket": "all",
+        "min_price": null,
+        "max_price": null,
+        "sort_by": "score",
+        "codes": null,
+        "q": ""
+      },
+      "funnel": []
+    },
+    "response_revision": 1
+  },
+  "normal_empty": {
+    "schema_version": 1,
+    "snapshot_id": "S-empty",
+    "data_as_of": "2026-10-09T15:00:00+08:00",
+    "generated_at": "2026-10-09T16:20:00+08:00",
+    "versions": {
+      "data": "D1",
+      "strategy": "strategy-model-sha256-v1",
+      "parameters": "parameters-sha256-v1"
+    },
+    "rows": [],
+    "counts": {
+      "snapshot_total": 0,
+      "filtered_total": 0,
+      "brackets": {
+        "low": 0,
+        "mid": 0,
+        "high": 0,
+        "top": 0
+      }
+    },
+    "result_state": "current",
+    "audit_state": "passed",
+    "audit": {
+      "data_version": "D1",
+      "checked_at": "2026-10-12T09:59:00+08:00",
+      "valid_until": "2026-10-12T16:10:00+08:00",
+      "error": null
+    },
+    "job": {
+      "job_id": "J1",
+      "status": "succeeded",
+      "stage": "complete",
+      "created_at": "2026-10-09T16:10:00+08:00",
+      "started_at": "2026-10-09T16:10:01+08:00",
+      "finished_at": "2026-10-09T16:20:00+08:00",
+      "heartbeat_at": "2026-10-09T16:20:00+08:00",
+      "error": null,
+      "data_only": false
+    },
+    "action_permissions": {
+      "view_candidates": "allowed",
+      "create_buy": "paused",
+      "add_position": "paused",
+      "export_orders": "paused"
+    },
+    "blocked_reasons": [
+      {
+        "code": "NO_CANDIDATES",
+        "message": "本次计算完成，没有满足筛选条件的候选",
+        "actions": [
+          "create_buy",
+          "add_position",
+          "export_orders"
+        ]
+      }
+    ],
+    "empty_kind": "screened_out",
+    "selection": {
+      "filters": {
+        "bracket": "all",
+        "min_price": null,
+        "max_price": null,
+        "sort_by": "score",
+        "codes": null,
+        "q": ""
+      },
+      "funnel": [
+        {
+          "name": "数据可用",
+          "input": 3,
+          "output": 2,
+          "excluded_by_reason": {
+            "insufficient_history": 1
+          }
+        },
+        {
+          "name": "候选筛选",
+          "input": 2,
+          "output": 0,
+          "excluded_by_reason": {
+            "score_below_threshold": 2
+          }
+        }
+      ]
+    },
+    "response_revision": 20
+  },
+  "risk_forbids_buy": {
+    "schema_version": 1,
+    "snapshot_id": "S1",
+    "data_as_of": "2026-10-09T15:00:00+08:00",
+    "generated_at": "2026-10-09T16:20:00+08:00",
+    "versions": {
+      "data": "D1",
+      "strategy": "strategy-model-sha256-v1",
+      "parameters": "parameters-sha256-v1"
+    },
+    "rows": [
+      {
+        "code": "000001",
+        "name": "固定样本",
+        "price": 10.0,
+        "hand_cost": 1000,
+        "score_blend": 85.0,
+        "score_lgb": 80.0,
+        "score_linear": 90.0,
+        "price_bracket": "low",
+        "rank": 1,
+        "why_recommended": {
+          "rationale": "固定验收样本，不是实际推荐"
+        }
+      }
+    ],
+    "counts": {
+      "snapshot_total": 1,
+      "filtered_total": 1,
+      "brackets": {
+        "low": 1,
+        "mid": 0,
+        "high": 0,
+        "top": 0
+      }
+    },
+    "result_state": "current",
+    "audit_state": "passed",
+    "audit": {
+      "data_version": "D1",
+      "checked_at": "2026-10-12T09:59:00+08:00",
+      "valid_until": "2026-10-12T16:10:00+08:00",
+      "error": null
+    },
+    "job": {
+      "job_id": "J1",
+      "status": "succeeded",
+      "stage": "complete",
+      "created_at": "2026-10-09T16:10:00+08:00",
+      "started_at": "2026-10-09T16:10:01+08:00",
+      "finished_at": "2026-10-09T16:20:00+08:00",
+      "heartbeat_at": "2026-10-09T16:20:00+08:00",
+      "error": null,
+      "data_only": false
+    },
+    "action_permissions": {
+      "view_candidates": "allowed",
+      "create_buy": "forbidden",
+      "add_position": "forbidden",
+      "export_orders": "paused"
+    },
+    "blocked_reasons": [
+      {
+        "code": "RISK_NO_NEW_BUY",
+        "message": "当前风险模式禁止新增买入",
+        "actions": [
+          "create_buy",
+          "add_position"
+        ]
+      },
+      {
+        "code": "ORDER_RECHECK_REQUIRED",
+        "message": "可执行指令需按当前风险重新验证",
+        "actions": [
+          "export_orders"
+        ]
+      }
+    ],
+    "empty_kind": null,
+    "selection": {
+      "filters": {
+        "bracket": "all",
+        "min_price": null,
+        "max_price": null,
+        "sort_by": "score",
+        "codes": null,
+        "q": ""
+      },
+      "funnel": [
+        {
+          "name": "数据可用",
+          "input": 3,
+          "output": 2,
+          "excluded_by_reason": {
+            "insufficient_history": 1
+          }
+        },
+        {
+          "name": "候选筛选",
+          "input": 2,
+          "output": 1,
+          "excluded_by_reason": {
+            "score_below_threshold": 1
+          }
+        }
+      ]
+    },
+    "response_revision": 30
+  },
+  "revoked": {
+    "schema_version": 1,
+    "snapshot_id": "S1",
+    "data_as_of": "2026-10-09T15:00:00+08:00",
+    "generated_at": "2026-10-09T16:20:00+08:00",
+    "versions": {
+      "data": "D1",
+      "strategy": "strategy-model-sha256-v1",
+      "parameters": "parameters-sha256-v1"
+    },
+    "rows": [],
+    "counts": {
+      "snapshot_total": 0,
+      "filtered_total": 0,
+      "brackets": {
+        "low": 0,
+        "mid": 0,
+        "high": 0,
+        "top": 0
+      }
+    },
+    "result_state": "revoked",
+    "audit_state": "passed",
+    "audit": {
+      "data_version": "D1",
+      "checked_at": "2026-10-12T09:59:00+08:00",
+      "valid_until": "2026-10-12T16:10:00+08:00",
+      "error": null
+    },
+    "job": {
+      "job_id": "J1",
+      "status": "succeeded",
+      "stage": "complete",
+      "created_at": "2026-10-09T16:10:00+08:00",
+      "started_at": "2026-10-09T16:10:01+08:00",
+      "finished_at": "2026-10-09T16:20:00+08:00",
+      "heartbeat_at": "2026-10-09T16:20:00+08:00",
+      "error": null,
+      "data_only": false
+    },
+    "action_permissions": {
+      "view_candidates": "forbidden",
+      "create_buy": "forbidden",
+      "add_position": "forbidden",
+      "export_orders": "forbidden"
+    },
+    "blocked_reasons": [
+      {
+        "code": "SNAPSHOT_REVOKED",
+        "message": "该版本输入完整性检查失败，已撤销",
+        "actions": [
+          "view_candidates",
+          "create_buy",
+          "add_position",
+          "export_orders"
+        ]
+      }
+    ],
+    "empty_kind": "revoked",
+    "selection": {
+      "filters": {
+        "bracket": "all",
+        "min_price": null,
+        "max_price": null,
+        "sort_by": "score",
+        "codes": null,
+        "q": ""
+      },
+      "funnel": [
+        {
+          "name": "数据可用",
+          "input": 3,
+          "output": 2,
+          "excluded_by_reason": {
+            "insufficient_history": 1
+          }
+        },
+        {
+          "name": "候选筛选",
+          "input": 2,
+          "output": 1,
+          "excluded_by_reason": {
+            "score_below_threshold": 1
+          }
+        }
+      ]
+    },
+    "response_revision": 40
+  },
+  "filter_no_match": {
+    "schema_version": 1,
+    "snapshot_id": "S1",
+    "data_as_of": "2026-10-09T15:00:00+08:00",
+    "generated_at": "2026-10-09T16:20:00+08:00",
+    "versions": {
+      "data": "D1",
+      "strategy": "strategy-model-sha256-v1",
+      "parameters": "parameters-sha256-v1"
+    },
+    "rows": [],
+    "counts": {
+      "snapshot_total": 1,
+      "filtered_total": 0,
+      "brackets": {
+        "low": 0,
+        "mid": 0,
+        "high": 0,
+        "top": 0
+      }
+    },
+    "result_state": "current",
+    "audit_state": "passed",
+    "audit": {
+      "data_version": "D1",
+      "checked_at": "2026-10-12T09:59:00+08:00",
+      "valid_until": "2026-10-12T16:10:00+08:00",
+      "error": null
+    },
+    "job": {
+      "job_id": "J1",
+      "status": "succeeded",
+      "stage": "complete",
+      "created_at": "2026-10-09T16:10:00+08:00",
+      "started_at": "2026-10-09T16:10:01+08:00",
+      "finished_at": "2026-10-09T16:20:00+08:00",
+      "heartbeat_at": "2026-10-09T16:20:00+08:00",
+      "error": null,
+      "data_only": false
+    },
+    "action_permissions": {
+      "view_candidates": "allowed",
+      "create_buy": "paused",
+      "add_position": "paused",
+      "export_orders": "paused"
+    },
+    "blocked_reasons": [
+      {
+        "code": "FILTER_NO_MATCH",
+        "message": "当前价格区间无匹配候选",
+        "actions": [
+          "create_buy",
+          "add_position",
+          "export_orders"
+        ]
+      }
+    ],
+    "empty_kind": "filter_no_match",
+    "selection": {
+      "filters": {
+        "bracket": "top",
+        "min_price": null,
+        "max_price": null,
+        "sort_by": "score",
+        "codes": null,
+        "q": ""
+      },
+      "funnel": [
+        {
+          "name": "数据可用",
+          "input": 3,
+          "output": 2,
+          "excluded_by_reason": {
+            "insufficient_history": 1
+          }
+        },
+        {
+          "name": "候选筛选",
+          "input": 2,
+          "output": 1,
+          "excluded_by_reason": {
+            "score_below_threshold": 1
+          }
+        }
+      ]
+    },
+    "response_revision": 10
+  }
+}

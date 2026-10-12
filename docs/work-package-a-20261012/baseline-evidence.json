@@ -1,0 +1,281 @@
+{
+  "commit": "6d2ac59f7d54dcbc1cbb3cac9b1269b9b4bc2df4",
+  "fixed_now": "2026-10-12T10:00:00+08:00",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "python": "3.13.3 (v3.13.3:6280bb54784, Apr  8 2025, 10:47:54) [Clang 15.0.0 (clang-1500.3.9.4)]",
+  "cpu": "Apple M1 Pro",
+  "memory_bytes": 17179869184,
+  "scenarios": {
+    "first_start": {
+      "total_count": 0,
+      "brackets": {
+        "low": {
+          "key": "low",
+          "label": "黄金低价 (≤¥20)",
+          "count": 0,
+          "min_hand_cost": 0.0,
+          "top_stock": ""
+        },
+        "mid": {
+          "key": "mid",
+          "label": "稳健中价 (¥20-¥50)",
+          "count": 0,
+          "min_hand_cost": 0.0,
+          "top_stock": ""
+        },
+        "high": {
+          "key": "high",
+          "label": "成长中高 (¥50-¥100)",
+          "count": 0,
+          "min_hand_cost": 0.0,
+          "top_stock": ""
+        },
+        "top": {
+          "key": "top",
+          "label": "百元资产 (>¥100)",
+          "count": 0,
+          "min_hand_cost": 0.0,
+          "top_stock": ""
+        }
+      },
+      "readiness": {
+        "ready": false,
+        "reason": "缺少带来源和日期的有效推荐文件",
+        "trade_date": null,
+        "source": "unknown",
+        "generated_at": "",
+        "coverage": 0.0,
+        "audit_pending": false
+      }
+    },
+    "valid": {
+      "rows": 5,
+      "stats": {
+        "total_count": 5,
+        "brackets": {
+          "low": {
+            "key": "low",
+            "label": "黄金低价 (≤¥20)",
+            "count": 2,
+            "min_hand_cost": 1000.0,
+            "top_stock": "Fixture1 (¥10.0)"
+          },
+          "mid": {
+            "key": "mid",
+            "label": "稳健中价 (¥20-¥50)",
+            "count": 1,
+            "min_hand_cost": 5000.0,
+            "top_stock": "Fixture3 (¥50.0)"
+          },
+          "high": {
+            "key": "high",
+            "label": "成长中高 (¥50-¥100)",
+            "count": 1,
+            "min_hand_cost": 10000.0,
+            "top_stock": "Fixture4 (¥100.0)"
+          },
+          "top": {
+            "key": "top",
+            "label": "百元资产 (>¥100)",
+            "count": 1,
+            "min_hand_cost": 10100.0,
+            "top_stock": "Fixture5 (¥101.0)"
+          }
+        },
+        "readiness": {
+          "ready": true,
+          "reason": "",
+          "trade_date": "2026-10-09",
+          "source": "fixture",
+          "generated_at": "2026-10-12T10:00:00+08:00",
+          "coverage": 1,
+          "audit_pending": false
+        }
+      }
+    },
+    "expired_audit": {
+      "rows": 0,
+      "stats": {
+        "total_count": 0,
+        "brackets": {
+          "low": {
+            "key": "low",
+            "label": "黄金低价 (≤¥20)",
+            "count": 0,
+            "min_hand_cost": 0.0,
+            "top_stock": ""
+          },
+          "mid": {
+            "key": "mid",
+            "label": "稳健中价 (¥20-¥50)",
+            "count": 0,
+            "min_hand_cost": 0.0,
+            "top_stock": ""
+          },
+          "high": {
+            "key": "high",
+            "label": "成长中高 (¥50-¥100)",
+            "count": 0,
+            "min_hand_cost": 0.0,
+            "top_stock": ""
+          },
+          "top": {
+            "key": "top",
+            "label": "百元资产 (>¥100)",
+            "count": 0,
+            "min_hand_cost": 0.0,
+            "top_stock": ""
+          }
+        },
+        "readiness": {
+          "ready": false,
+          "reason": "正在核验完整行情历史，请稍后刷新",
+          "trade_date": null,
+          "source": "unknown",
+          "generated_at": "",
+          "coverage": 0.0,
+          "audit_pending": true
+        }
+      }
+    },
+    "audit_failure": {
+      "health": {
+        "ready": false,
+        "reason": "健康审计未完成: controlled audit failure",
+        "health_cache_stale": true,
+        "health_checked_at": null,
+        "trade_date": null,
+        "coverage": 0.0
+      },
+      "files_retained": true
+    },
+    "normal_empty": {
+      "ready": false,
+      "reason": "当前交易日没有可用推荐",
+      "trade_date": "2026-10-09",
+      "source": "fixture",
+      "generated_at": "2026-10-12T10:00:00+08:00",
+      "coverage": 1
+    },
+    "generation_metadata_gap": {
+      "ready": false,
+      "reason": "缺少带来源和日期的有效推荐文件",
+      "trade_date": null,
+      "source": "unknown",
+      "generated_at": "",
+      "coverage": 0.0
+    },
+    "risk_forbids_buy": {
+      "plan_rows": 5,
+      "weights": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "displayed_rows": 5
+    },
+    "running_job": {
+      "job_id": "e15fb31daba748b3b9455b782f65818c",
+      "status": "running",
+      "result": null,
+      "error": null,
+      "created_at": "2026-10-12T02:45:49.056465+00:00",
+      "data_only": false
+    },
+    "failed_job": {
+      "job_id": "e15fb31daba748b3b9455b782f65818c",
+      "status": "failed",
+      "result": null,
+      "error": "controlled generation failure",
+      "created_at": "2026-10-12T02:45:49.056465+00:00",
+      "data_only": false,
+      "finished_at": "2026-10-12T02:45:49.056692+00:00"
+    },
+    "registry_restart": {
+      "previous_job_found": false,
+      "latest": null
+    },
+    "health_restart_first_response": {
+      "trade_date": null,
+      "coverage": 0.0,
+      "ready": false,
+      "training_ready": false,
+      "health_cache_stale": true,
+      "reason": "正在核验完整行情历史，请稍后刷新",
+      "health_checked_at": null
+    }
+  },
+  "timings": {
+    "valid_list_http": {
+      "n": 100,
+      "min_ms": 3.5439170023892075,
+      "p50_ms": 4.33487500413321,
+      "p95_ms": 5.23450001492165,
+      "max_ms": 5.917542002862319
+    },
+    "valid_stats_http": {
+      "n": 100,
+      "min_ms": 4.044625005917624,
+      "p50_ms": 5.0822079938370734,
+      "p95_ms": 18.598958005895838,
+      "max_ms": 150.41654199012555
+    },
+    "expired_list_http": {
+      "n": 100,
+      "min_ms": 1.1651669919956475,
+      "p50_ms": 1.4664579939562827,
+      "p95_ms": 2.2808749927207828,
+      "max_ms": 3.1622080132365227
+    },
+    "controlled_audit_wall_ms": 165.51758401328698,
+    "job_enqueue_ms": 0.22774998797103763,
+    "real_signature_ms": 2.9567090095952153,
+    "real_audit_ms": 41473.814041004516,
+    "real_cached_list_http": {
+      "n": 100,
+      "min_ms": 7.161582994740456,
+      "p50_ms": 7.639500021468848,
+      "p95_ms": 8.462582976790145,
+      "max_ms": 11.207292001927271
+    },
+    "real_cached_stats_http": {
+      "n": 100,
+      "min_ms": 7.720082998275757,
+      "p50_ms": 8.243625023169443,
+      "p95_ms": 8.873792015947402,
+      "max_ms": 12.271416984731331
+    }
+  },
+  "limitations": [
+    "In-process HTTP; no TCP or browser rendering.",
+    "Generation and long audit are controlled substitutes, not real training runtimes.",
+    "Real market database is read-only but not frozen; signature stability is recorded.",
+    "Job registry timestamps use wall clock; fixed time applies to health/session decisions."
+  ],
+  "fixture_sha256": "7b1d3451eee3c5d8defb18b4ff1c573ba384222ec32fb24a68e428278a5f793a",
+  "real_data": {
+    "db_bytes": 904462336,
+    "bars": 415579,
+    "codes": 301,
+    "minute_bars": 77691,
+    "dates": [
+      "2021-01-04",
+      "2026-10-09"
+    ]
+  },
+  "real_health": {
+    "ready": true,
+    "reason": "",
+    "trade_date": "2026-10-09",
+    "coverage": 1.0,
+    "training_ready": true,
+    "expected_codes": 296,
+    "trusted_daily_rows": 410519
+  },
+  "real_signature_stable": true,
+  "real_result_rows": 7,
+  "real_signature_stable_after_http": true,
+  "captured_at": "2026-10-12T02:46:32.408070+00:00"
+}
