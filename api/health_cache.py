@@ -7,12 +7,13 @@ import datetime as dt
 from hashlib import sha256
 from pathlib import Path
 import sqlite3
+import logging
 from threading import Lock
 import time
 
 from config.settings import settings_version
 from data.health import assess_data_health, _expected_session
-from data.timeliness import exchange_now
+from data.timeliness import exchange_now, exchange_now as normalize_exchange_time
 from data.trading_calendar import calendar_verified
 
 
@@ -67,6 +68,15 @@ class HealthCache:
         self._refreshing = set()
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='health-audit')
 
+    def _persist(self, settings, health, status, signature=None, now=None):
+        from services.result_pipeline import record_health_projection
+        from services.result_store import ResultStoreError
+        try:
+            record_health_projection(settings, health, status, signature=signature,
+                                     now=now, ttl_seconds=self.ttl_seconds)
+        except ResultStoreError:
+            logging.getLogger('stockpilot.health').exception('健康审计状态无法持久化')
+
     @staticmethod
     def _time_key(settings, current):
         if settings.engine.use_intraday_factors:
@@ -78,7 +88,7 @@ class HealthCache:
         key = (str(Path(settings.data.db_path).resolve()), settings_version(settings))
         old = self._entries.get(key)
         try:
-            signature = (self.signature(settings), self._time_key(settings, exchange_now()))
+            signature = (self.signature(settings), self._time_key(settings, normalize_exchange_time(exchange_now())))
             if old and old[0] == signature and self.clock()-old[1] < self.ttl_seconds:
                 return deepcopy(old[2])
         except Exception:
@@ -89,11 +99,13 @@ class HealthCache:
         with self._refresh_lock:
             if key not in self._refreshing:
                 self._refreshing.add(key)
+                self._persist(settings, pending, 'pending')
                 self._pool.submit(self._refresh, settings, key)
         return pending
 
     def _refresh(self, settings, key):
         try:
+            self._persist(settings, {}, 'running')
             self.get(settings, wait=True)
         finally:
             with self._refresh_lock:
@@ -109,14 +121,16 @@ class HealthCache:
             return pending
         try:
             now = self.clock()
-            current = exchange_now()
+            current = normalize_exchange_time(exchange_now())
+            finished = current
             try:
                 signature = (self.signature(settings), self._time_key(settings, current))
                 old = self._entries.get(key)
                 if old and old[0] == signature and now - old[1] < self.ttl_seconds:
                     return deepcopy(old[2])
+                self._persist(settings, old[2] if old else {}, 'running', now=current)
                 result = dict(self.audit(settings))
-                finished = exchange_now()
+                finished = normalize_exchange_time(exchange_now())
                 after = (self.signature(settings), self._time_key(settings, finished))
                 session_changed = (_expected_session(current) != _expected_session(finished)
                     or calendar_verified(current.date()) != calendar_verified(finished.date()))
@@ -125,16 +139,20 @@ class HealthCache:
                     raise RuntimeError('审计期间行情版本或有效交易时点发生变化，请重新检查')
                 result['health_as_of'] = current.isoformat()
                 result.update(health_cache_stale=False,
-                    health_checked_at=dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds'))
+                    health_checked_at=finished.isoformat(timespec='seconds'))
+                self._persist(settings, result, 'passed' if result.get('ready') else 'failed', signature=after[0], now=finished)
                 self._entries[key] = (after, self.clock(), deepcopy(result))
                 if len(self._entries) > 8:
                     del self._entries[next(iter(self._entries))]
                 return result
             except Exception as exc:
                 # A failed revalidation can never resurrect a previously ready snapshot.
-                self._entries.pop(key, None)
-                return dict(ready=False, reason=f'健康审计未完成: {exc}', health_cache_stale=True,
-                            health_checked_at=None, trade_date=None, coverage=0.)
+                prior = self._entries.pop(key, None)
+                failed = deepcopy(prior[2]) if prior else dict(trade_date=None, coverage=0.)
+                failed.update(ready=False, reason=f'健康审计未完成: {exc}', health_cache_stale=True,
+                              training_ready=False, health_checked_at=finished.isoformat(timespec='seconds'))
+                self._persist(settings, failed, 'failed', now=finished)
+                return failed
 
         finally:
             self._lock.release()

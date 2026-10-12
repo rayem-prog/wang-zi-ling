@@ -4,6 +4,18 @@ from typing import Any
 from config.settings import Settings
 from data.watchlist import WatchlistRepository
 from services.recommendations import load_signals
+from data.timeliness import exchange_now
+from services.result_store import ResultStore
+from services.result_contract import build_snapshot_response
+
+
+def get_snapshot(settings, *, filters=None, now=None):
+    view = ResultStore(settings.paths.artifact_dir).read_view()
+    job = view.get("job")
+    if job and isinstance(job.get("error"), str):
+        view["job"] = dict(job, error=job.get("error_info") or {"code": "generation_failed", "message": job["error"], "retryable": True})
+    return build_snapshot_response(view, settings, now=now or exchange_now(), filters=filters)
+
 
 
 def list_signals(settings: Settings, *, bracket="all", min_price=None, max_price=None,
@@ -82,8 +94,16 @@ def remove_from_watchlist(settings: Settings, code: str) -> dict[str, Any]:
 def signal_stats(settings: Settings) -> dict[str, Any]:
     from api.health_cache import health_cache
     from data.health import recommendation_state
-    health = health_cache.get_background(settings)
-    items = load_signals(settings, health=health)
+    view = ResultStore(settings.paths.artifact_dir).read_view()
+    if view['snapshot'] is not None:
+        snapshot = build_snapshot_response(view, settings, now=exchange_now())
+        items = snapshot['rows']
+        readiness = dict(ready=snapshot['result_state']=='current', audit_pending=snapshot['audit_state'] in ('pending', 'running'),
+                         trade_date=view['snapshot']['trade_date'], reason='')
+    else:
+        health = health_cache.get_background(settings)
+        items = load_signals(settings, health=health)
+        readiness = dict(recommendation_state(settings, health), audit_pending=health.get('health_cache_stale', False))
     total_count = len(items)
 
     brackets = {
@@ -110,6 +130,5 @@ def signal_stats(settings: Settings) -> dict[str, Any]:
     return {
         "total_count": total_count,
         "brackets": brackets,
-        "readiness": dict(recommendation_state(settings, health),
-                          audit_pending=health.get('health_cache_stale', False)),
+        "readiness": readiness,
     }

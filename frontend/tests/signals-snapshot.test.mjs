@@ -48,6 +48,30 @@ test('updating retains the dated ranking and same response counts',async()=>{
   } finally {t.dispose()}
 })
 
+test('paper handoff carries the displayed snapshot version with the selected stock',async()=>{
+  const t=setup({getSignalsSnapshot:async()=>clone('valid')})
+  try {
+    await t.page.loadSignals()
+    t.page.handleGoPaper(t.page.signals.value[0])
+    assert.deepEqual(t.emitted,[['switch-tab',{tab:'paper',stock:{...t.page.signals.value[0],snapshot_id:'S1'}}]])
+  } finally {t.dispose()}
+})
+
+test('a pending refresh submission immediately disables paper buys',async()=>{
+  const submission=deferred()
+  const t=setup({getSignalsSnapshot:async()=>clone('valid'),refreshSignals:()=>submission.promise})
+  try {
+    await t.page.loadSignals()
+    assert.equal(t.page.canBuy.value,true)
+    const refresh=t.page.refresh()
+    await flush()
+    assert.equal(t.page.jobRunning.value,true)
+    assert.equal(t.page.canBuy.value,false)
+    submission.resolve({job_id:'refresh-1',status:'queued',stage:'queued'})
+    await refresh
+  } finally {t.dispose()}
+})
+
 test('connection failure retains content but pauses decisions and explains failure',async()=>{
   let calls=0
   const t=setup({getSignalsSnapshot:async()=>{if(++calls>1)throw new Error('connection lost');return clone('valid')}})

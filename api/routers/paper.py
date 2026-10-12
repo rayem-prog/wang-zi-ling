@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from config.settings import load_settings
 from data.health import assess_data_health, recommendation_state
 from strategy import paper
-from services.decision_results import decision_context, DecisionUnavailable, require_candidate
+from services.decision_results import decision_context, DecisionUnavailable, require_candidate, require_snapshot_reference
 
 router = APIRouter(prefix="/api/paper", tags=["paper"])
 def _paper_db_path() -> str:
@@ -36,6 +36,11 @@ def get_account() -> dict[str, Any]:
 @router.post("/order")
 def place_order(req: PaperOrderRequest) -> dict[str, Any]:
     settings = load_settings()
+    if req.side.upper() in ('BUY', '买入'):
+        try:
+            require_snapshot_reference(settings, req.snapshot_id)
+        except DecisionUnavailable as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     if req.snapshot_id and req.side.upper() in ('BUY', '买入'):
         try:
             with decision_context(settings, assess_data_health(settings), expected_snapshot_id=req.snapshot_id, for_new_buy=True) as snapshot:

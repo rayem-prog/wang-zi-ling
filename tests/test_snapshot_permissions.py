@@ -57,6 +57,25 @@ def test_snapshot_bound_manual_buy_rejects_revoked_version(published):
     assert paper.get_paper_account(str(Path(settings.paths.artifact_dir)/'paper.db'))['positions']==[]
 
 
+def test_manual_buy_without_snapshot_rejects_revoked_published_head(published):
+    settings,store,snapshot,_=published
+    store.revoke(snapshot,dict(code='SOURCE_REVOKED',message='输入来源已撤销'))
+    response=TestClient(app).post('/api/paper/order',json=dict(code='000001',name='Fixture',side='BUY',shares=100,price=10))
+    assert response.status_code==409
+    assert paper.get_paper_account(str(Path(settings.paths.artifact_dir)/'paper.db'))['positions']==[]
+
+
+def test_holdings_manual_buy_without_snapshot_rejects_revoked_published_head(published,monkeypatch):
+    settings,store,snapshot,health=published
+    from api.routers import holdings as route
+    monkeypatch.setattr(route,'load_settings',lambda:settings)
+    monkeypatch.setattr(route,'assess_data_health',lambda _:health)
+    store.revoke(snapshot,dict(code='SOURCE_REVOKED',message='输入来源已撤销'))
+    response=TestClient(app).post('/api/holdings/paper',json=dict(code='000001',shares=100,price=10,side='BUY'))
+    assert response.status_code==409
+    assert paper.get_paper_account(str(Path(settings.paths.artifact_dir)/'paper.db'))['positions']==[]
+
+
 def test_export_rejects_revoked_snapshot_even_when_legacy_files_are_present(published):
     settings,store,snapshot,_=published
     pd.DataFrame([dict(code='000001',name='Fixture',action='买入',shares=100,limit_low=9,limit_high=11)]).to_csv(Path(settings.paths.artifact_dir)/'latest_orders.csv',index=False)
@@ -96,6 +115,47 @@ def test_current_snapshot_permissions_follow_latest_certified_risk(published):
     assert restricted['action_permissions']['create_buy']=='forbidden'
     assert restricted['action_permissions']['add_position']=='forbidden'
     assert len(restricted['rows'])==1
+
+
+def test_bound_manual_buy_pauses_when_generation_job_is_active(published,monkeypatch):
+    settings,store,snapshot,_=published
+    from services import decision_results
+    monkeypatch.setattr(decision_results,'current_data_version',lambda _:'fixture-v1')
+    store.save_job(dict(job_id='generation-in-progress',status='running',stage='fetch',
+                        data_only=False,started_at=datetime.now().astimezone().isoformat()))
+    response=TestClient(app).post('/api/paper/order',json=dict(snapshot_id=snapshot,code='000001',
+        name='Fixture',side='BUY',shares=100,price=10))
+    assert response.status_code==409
+    assert paper.get_paper_account(str(Path(settings.paths.artifact_dir)/'paper.db'))['positions']==[]
+
+
+def test_rejected_legacy_bootstrap_cannot_fall_back_to_tradeable_csv(tmp_path):
+    settings=replace(Settings(),data=replace(Settings().data,db_path=str(tmp_path/'market.db')),
+                     paths=replace(Settings().paths,artifact_dir=str(tmp_path/'artifacts')))
+    folder=Path(settings.paths.artifact_dir)
+    folder.mkdir(parents=True)
+    now=datetime.now().astimezone()
+    day='2026-10-09'
+    pd.DataFrame([dict(code='000001',name='Unverified legacy',price=10,score_blend=90)]).to_csv(
+        folder/'recommendations.csv',index=False)
+    # Startup migration requires all provenance fields; the legacy runtime
+    # fallback historically accepts this incomplete metadata.
+    (folder/'latest_recommendations.meta.json').write_text(json.dumps(dict(
+        trade_date=day,generated_at=now.isoformat(),source='fixture',coverage=1)))
+    from services.result_pipeline import bootstrap_results
+    from data.health import recommendation_state
+    bootstrap_results(settings)
+    view=ResultStore(settings.paths.artifact_dir).read_view()
+    assert view['snapshot'] is None
+    assert view['audit']['state']=='failed'
+    store=ResultStore(settings.paths.artifact_dir)
+    store.record_audit(dict(state='passed',ready=True,data_version='fixture-data',
+        parameters_version=settings_version(settings),checked_at=now.isoformat(),
+        valid_until=(now+timedelta(minutes=2)).isoformat(),error=None,
+        health={'ready':True,'trade_date':day}))
+    state=recommendation_state(settings,dict(ready=True,trade_date=day,reason=''))
+    assert state['ready'] is False
+    assert '导入' in state['reason'] or '来源' in state['reason']
 
 
 def test_parameter_change_pauses_operations_but_keeps_ranking(published):

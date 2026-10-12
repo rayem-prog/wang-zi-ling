@@ -62,11 +62,19 @@ def get_system_status() -> dict[str, Any]:
     settings = load_settings()
     try:
         view = ResultStore(settings.paths.artifact_dir).read_view()
-        response = build_snapshot_response(view, settings, now=exchange_now())
+        current = exchange_now()
+        response = build_snapshot_response(view, settings, now=current)
         audit = view.get('audit') or {}
         data_health = dict(audit.get('health') or {})
-        data_health.update(ready=response['result_state'] == 'current',
-                           health_cache_stale=response['audit_state'] != 'passed',
+        try:
+            deadline = dt.datetime.fromisoformat(audit.get('valid_until') or '')
+            audit_fresh = deadline.tzinfo is not None and deadline > current
+        except (ValueError, TypeError):
+            audit_fresh = False
+        market_ready = (audit.get('ready') is True and response['audit_state'] == 'passed' and audit_fresh
+                        and response['job'].get('status') not in ('queued', 'running'))
+        data_health.update(ready=market_ready,
+                           health_cache_stale=not market_ready,
                            health_checked_at=audit.get('checked_at'))
         if not data_health.get('reason') and not data_health['ready']:
             data_health['reason'] = '后台核验尚未完成或认证已过期'

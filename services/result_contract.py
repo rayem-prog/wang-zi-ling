@@ -89,6 +89,10 @@ def build_snapshot_response(view: dict, settings, *, now: datetime, filters=None
         state = "none"
     elif revocation:
         state = "revoked"
+    elif job.get('status') in ('queued', 'running'):
+        # A mutating worker may already have changed inputs; the previous
+        # certificate cannot attest to the current dataset during this window.
+        state = "historical"
     elif (not snapshot.get("legacy_import") and audit_state == "passed"
           and certificate.get("ready") is True
           and certificate.get("data_version") == versions["data"]
@@ -137,6 +141,10 @@ def build_snapshot_response(view: dict, settings, *, now: datetime, filters=None
         has_orders=bool(snapshot.get("orders")) if snapshot else False,
         revocation=revocation,
     )
+    if snapshot is None and view.get('migration_error'):
+        error = view['migration_error']
+        reasons.append({'code': error['code'], 'message': error['message'],
+                        'actions': ['view_candidates', 'create_buy', 'add_position', 'export_orders']})
     paused_actions = [action for action in ("create_buy", "add_position", "export_orders")
                       if permissions[action] == "paused"]
     if paused_actions:

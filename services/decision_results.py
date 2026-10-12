@@ -29,6 +29,8 @@ def snapshot_operation_state(settings, health, *, expected_snapshot_id=None, vie
     view = view if view is not None else ResultStore(settings.paths.artifact_dir).read_view()
     snapshot = view['snapshot']
     if snapshot is None:
+        if view.get('migration_error'):
+            return dict(ready=False, trade_date=None, reason=view['migration_error']['message'] + '；请重新生成结果')
         if expected_snapshot_id:
             raise DecisionUnavailable('该结果版本已不可用，请重新读取榜单')
         return None
@@ -39,6 +41,8 @@ def snapshot_operation_state(settings, health, *, expected_snapshot_id=None, vie
         result['reason'] = '该结果已撤销：' + view['revocation']['message']
     elif expected_snapshot_id and expected_snapshot_id != snapshot['snapshot_id']:
         result['reason'] = '结果版本已更新，请重新读取榜单后再操作'
+    elif (view.get('job') or {}).get('status') in ('queued', 'running'):
+        result['reason'] = '后台正在更新结果，请等待更新完成后再操作'
     elif not health.get('ready'):
         result['reason'] = health.get('reason') or '行情数据未通过完整性检查'
     elif snapshot.get('legacy_import'):
@@ -122,3 +126,13 @@ def require_candidate(snapshot, code):
         row=next((row for row in snapshot['rows'] if row['code']==str(code).zfill(6)),None)
         if row is None or row.get('buyable'):
             raise DecisionUnavailable('该标的不属于此版本可买入候选，请重新选择')
+
+
+def require_snapshot_reference(settings, snapshot_id):
+    """New buys must bind their displayed version once snapshot storage is active."""
+    try:
+        view=ResultStore(settings.paths.artifact_dir).read_view()
+    except ResultStoreError as exc:
+        raise DecisionUnavailable('结果状态暂时不可确认，请稍后重试') from exc
+    if view['snapshot'] is not None and not snapshot_id:
+        raise DecisionUnavailable('请提供当前结果版本 snapshot_id 后再买入')

@@ -16,7 +16,7 @@ from strategy import holdings, paper
 from data.timeliness import quote_state
 from api.health_cache import health_cache
 from services.holding_valuation import valuation_quotes
-from services.decision_results import operation_frame, decision_context, DecisionUnavailable, require_candidate
+from services.decision_results import operation_frame, decision_context, DecisionUnavailable, require_candidate, require_snapshot_reference
 
 router = APIRouter(prefix="/api/holdings", tags=["holdings"])
 
@@ -116,6 +116,11 @@ def get_paper_summary() -> dict[str, Any]:
 def create_paper_order(order: PaperOrderItem) -> dict[str, Any]:
     settings = load_settings()
     db_path = str(Path(settings.paths.artifact_dir) / "paper.db")
+    if order.side.upper() in ('BUY', '买入'):
+        try:
+            require_snapshot_reference(settings, order.snapshot_id)
+        except DecisionUnavailable as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     if order.snapshot_id and order.side.upper() in ('BUY', '买入'):
         try:
             with decision_context(settings, assess_data_health(settings), expected_snapshot_id=order.snapshot_id, for_new_buy=True) as snapshot:

@@ -161,6 +161,9 @@ CREATE TABLE IF NOT EXISTS result_revocations (
     reason_json TEXT NOT NULL,
     revoked_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS result_migration (
+    id INTEGER PRIMARY KEY CHECK(id=1), error_json TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS result_audit (
     id INTEGER PRIMARY KEY CHECK(id=1), projection_json TEXT NOT NULL
 );
@@ -211,7 +214,7 @@ class ResultStore:
         return snapshot_id
 
     def publish(self, snapshot_id: str, expected_versions: dict | None = None,
-                job_id: str | None = None) -> int:
+                job_id: str | None = None, job_result: dict | None = None) -> int:
         with self._write() as db:
             row = db.execute("SELECT canonical_payload,payload_sha256,status,job_id FROM result_snapshots WHERE snapshot_id=?",
                              (snapshot_id,)).fetchone()
@@ -241,6 +244,19 @@ class ResultStore:
                 if job_row is None:
                     raise ValueError("unknown job")
                 job = json.loads(job_row[0])
+                completed = job_result if job_result is not None else {
+                    "success": True, "date": payload["trade_date"],
+                    "result": {"snapshot_id": snapshot_id, "last_date": payload["trade_date"],
+                               "rec_rows": len(payload["rows"]), "versions": payload["versions"]},
+                    "content": "", "reason": "", "report_pending": True,
+                }
+                if (not isinstance(completed, dict) or completed.get("success") is not True
+                    or completed.get("date") != payload["trade_date"]
+                    or not isinstance(completed.get("result"), dict)
+                    or completed["result"].get("snapshot_id") != snapshot_id):
+                    raise ValueError("published job result is incomplete or does not match snapshot")
+                job["result"] = completed
+                job["error_info"] = None
                 job.update(status="succeeded", stage="complete", finished_at=datetime.now(timezone.utc).isoformat(), error=None)
                 db.execute("UPDATE result_jobs SET projection_json=? WHERE job_id=?", (_json(job), job_id))
             db.execute("UPDATE result_snapshots SET status='published' WHERE snapshot_id=?", (snapshot_id,))
@@ -263,6 +279,14 @@ class ResultStore:
                        (snapshot_id, row[0], _json({"code": reason["code"], "message": reason["message"]}),
                         datetime.now(timezone.utc).isoformat()))
             db.execute("UPDATE result_snapshots SET status='revoked' WHERE snapshot_id=?", (snapshot_id,))
+            return self._revision(db)
+
+    def record_migration_failure(self, error: dict) -> int:
+        if not isinstance(error, dict) or not all(isinstance(error.get(key), str) and error[key]
+                                                  for key in ('code', 'message')):
+            raise ValueError('migration failure requires code and message')
+        with self._write() as db:
+            db.execute("INSERT INTO result_migration VALUES (1,?) ON CONFLICT(id) DO UPDATE SET error_json=excluded.error_json", (_json(error),))
             return self._revision(db)
 
     def record_audit(self, audit: dict) -> int:
@@ -332,6 +356,12 @@ class ResultStore:
                           "audit": json.loads(audit[0]) if audit else None,
                           "job": json.loads(job[0]) if job else None,
                           "response_revision": revision}
+                # The rejection survives later successful market audits. A new
+                # published head supersedes it; no legacy CSV fallback may do so.
+                if db.execute("SELECT 1 FROM sqlite_master WHERE name='result_migration'").fetchone():
+                    migration = db.execute("SELECT error_json FROM result_migration WHERE id=1").fetchone()
+                    if migration:
+                        result['migration_error'] = json.loads(migration[0])
                 db.commit()
                 return result
         except (sqlite3.Error, ValueError, TypeError, KeyError, IndexError) as exc:

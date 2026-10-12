@@ -1,7 +1,9 @@
 """HTTP parameters and routes for selection and the personal watchlist."""
 from __future__ import annotations
 from typing import Any
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException
+from fastapi.responses import JSONResponse
+from services.result_store import ResultStoreError
 from config.settings import load_settings
 from services import signals
 
@@ -10,8 +12,28 @@ router = APIRouter(prefix="/api/signals", tags=["signals"])
 
 @router.post('/refresh')
 def refresh_signals() -> dict[str, Any]:
-    from api.jobs import daily_jobs
-    return daily_jobs.start(True, send_notification=False)
+    from api.jobs import daily_jobs, JobConflict
+    try:
+        return daily_jobs.start(True, send_notification=False)
+    except JobConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.get('/snapshot')
+def get_signals_snapshot(
+    bracket: str = Query('all'), min_price: float | None = Query(None, gt=0, allow_inf_nan=False),
+    max_price: float | None = Query(None, gt=0, allow_inf_nan=False), sort_by: str = Query('score'),
+    codes: str | None = Query(None), q: str = Query('', max_length=200),
+):
+    try:
+        body = signals.get_snapshot(load_settings(), filters=dict(bracket=bracket, min_price=min_price,
+            max_price=max_price, sort_by=sort_by, codes=codes, q=q))
+        return JSONResponse(body, headers={'Cache-Control': 'no-store'})
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except ResultStoreError:
+        return JSONResponse(status_code=503, content={'error': {'code': 'result_store_unavailable',
+            'message': '结果库暂时不可读取，请稍后重试', 'retryable': True}}, headers={'Cache-Control': 'no-store'})
 
 
 @router.get("")

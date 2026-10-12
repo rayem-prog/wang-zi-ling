@@ -112,7 +112,7 @@ def engine_a(features, bench, date, train_days=750, min_train_rows=5000):
 
 
 def decide(features, bench, as_of, settings: Settings, w_a: float,
-           current_holdings=None, *, train_days=750, min_train_rows=5000, engine='blend', events_cfg=None, allow_new_entries=True) -> Decision:
+           current_holdings=None, *, train_days=750, min_train_rows=5000, engine='blend', events_cfg=None, allow_new_entries=True, progress=None) -> Decision:
     date = pd.Timestamp(as_of).date()
     history = asof_frame(features, date)
     if history.empty:
@@ -128,12 +128,16 @@ def decide(features, bench, as_of, settings: Settings, w_a: float,
     events = macro.load_event_calendar() if events_cfg is None else events_cfg
     policy = macro.compute_macro_score({settings.data.index_symbol: benchmark}, quotes, events_cfg=events, current_date=date)
     rule_cfg, rule_audit = rules.optimize_rules_formula(policy.stance, today)
+    if progress:
+        progress('train')
     if engine == 'b':
         sa = pd.DataFrame(dict(code=today.code, date=today.date, score_a=50.))
         model_audit = dict(status='纯B规则引擎，A引擎未运行', reason='pure_b_engine',
                            model_trained=False, top_features=[], training_as_of=None)
     else:
         sa, model_audit = engine_a(history, benchmark, date, train_days, min_train_rows)
+    if progress:
+        progress('score')
     sb = rules.score_engine_b(today, config=rule_cfg)
     if sb.empty:
         sb = pd.DataFrame(columns=['code', 'date', 'score_b'])
@@ -155,6 +159,8 @@ def decide(features, bench, as_of, settings: Settings, w_a: float,
     held = set(current_holdings.code) if current_holdings is not None and not current_holdings.empty else set()
     eligible = set(rec.head(settings.account.max_positions).code) | held
     rec = rec[rec.code.isin(eligible)].reset_index(drop=True)
+    if progress:
+        progress('risk')
     plan = sizing.compute_plan(rec, median_vol, settings, policy, current_holdings)
     # Without any current stock quotes, held prices can only support stale valuation.
     orders = (pd.DataFrame(columns=recap.ORDER_COLUMNS) if today.empty else

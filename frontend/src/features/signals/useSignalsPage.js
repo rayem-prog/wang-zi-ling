@@ -15,7 +15,7 @@ export function useSignalsPage(emit) {
   const snapshot = ref(null)
   const refreshSubmitting = ref(false)
   const jobRunning = computed(() => refreshSubmitting.value || ['queued', 'running'].includes(snapshot.value?.job?.status))
-  const canBuy = computed(() => snapshot.value?.action_permissions?.create_buy === 'allowed')
+  const canBuy = computed(() => !jobRunning.value && snapshot.value?.action_permissions?.create_buy === 'allowed')
   const resultLabel = computed(() => ({ current: '当前有效', historical: '历史结果，仅供回看', revoked: '已撤销', none: '尚无结果' })[snapshot.value?.result_state] || '正在读取结果')
   const signals = ref([])
   const watchlist = ref([])
@@ -144,7 +144,7 @@ export function useSignalsPage(emit) {
   function handleGoPaper(stock) {
     if (!canBuy.value || stock?.unavailable) return
     attributionVisible.value = false
-    emit('switch-tab', { tab: 'paper', stock: stock })
+    emit('switch-tab', { tab: 'paper', stock: { ...stock, snapshot_id: snapshot.value.snapshot_id } })
   }
 
   function formatResultTime(value) {

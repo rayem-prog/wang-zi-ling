@@ -45,6 +45,8 @@ async def _background_push_loop() -> None:
 async def lifespan(app: FastAPI):
     settings = load_settings()
     db.init_db(settings.data.db_path)
+    from services.result_pipeline import bootstrap_results
+    await run_in_threadpool(bootstrap_results, settings)
     push_task = asyncio.create_task(_background_push_loop())
     from api.market_refresh import refresh_loop
     refresh_task = asyncio.create_task(refresh_loop())

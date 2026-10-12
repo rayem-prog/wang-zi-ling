@@ -11,7 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from blend import weights as bw
 from config.settings import load_settings
 from scripts import daily_update
-from api.jobs import daily_jobs
+from api.jobs import daily_jobs, JobConflict
 
 router = APIRouter(prefix="/api/recap", tags=["recap"])
 
@@ -59,7 +59,10 @@ async def run_daily_recap(fast_mode: bool = Query(False, description="是否使�
     立即执行每日复盘全流程：
     更新全市场行情 -> 计算多因子 -> 评价已冻结预测的成熟未来收益 -> 幂等调整权重 -> 优化多因子公式与LightGBM模型 -> 生成最新复盘简报。
     """
-    return daily_jobs.start(fast_mode)
+    try:
+        return daily_jobs.start(fast_mode)
+    except JobConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @router.get('/jobs/{job_id}')
@@ -67,7 +70,7 @@ def get_daily_job(job_id: str) -> dict[str, Any]:
     try:
         return daily_jobs.get(job_id)
     except KeyError:
-        raise HTTPException(status_code=404, detail='未找到任务；服务重启后请重新生成')
+        raise HTTPException(status_code=404, detail='未找到该任务')
 
 
 @router.get("/{date}")
