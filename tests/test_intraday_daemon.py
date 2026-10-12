@@ -113,6 +113,12 @@ def test_daemon_runs_once(monkeypatch, tmp_path):
 
 
 def test_daemon_monitors_positions_watchlist_and_orders_end_to_end(monkeypatch, tmp_path):
+    # Closed-session quotes are valid on Sunday, but stale on Monday morning.
+    # Keep this scenario independent of the machine's current trading session.
+    fixed_now = dt.datetime(2026, 10, 11, 16, 0, tzinfo=dt.timezone(dt.timedelta(hours=8)))
+    from data import health
+    monkeypatch.setattr(health, "exchange_now", lambda *_: fixed_now)
+    monkeypatch.setattr(intraday_daemon, "exchange_now", lambda *_: fixed_now)
     s = replace(
         Settings(),
         data=replace(Settings().data, db_path=str(tmp_path / "market.db")),
@@ -130,7 +136,7 @@ def test_daemon_monitors_positions_watchlist_and_orders_end_to_end(monkeypatch, 
     orders_path = tmp_path / "artifacts" / "latest_orders.csv"
     orders_path.parent.mkdir()
     pd.DataFrame([{"code": "000004", "name": "指令股", "action": "买入", "limit_low": 9.5, "limit_high": 10.5}]).to_csv(orders_path, index=False)
-    session = _expected_session(dt.datetime.now())
+    session = _expected_session(fixed_now)
     from data.trading_calendar import expected_sessions
     dates = expected_sessions("2021-01-04", session.isoformat())
     for code in ("sh000300", "000001", "000002", "000003", "000004"):
