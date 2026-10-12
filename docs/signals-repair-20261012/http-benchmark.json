@@ -1,0 +1,41 @@
+{
+  "measured_at": "2026-10-12T03:42:23.190326+00:00",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "python": "3.13.3",
+  "backend": "isolated FastAPI signals router over TCP; app lifespan disabled",
+  "data": "temporary ResultStore only; no market DB or external network",
+  "no_heavy_get_work_spies": "passed",
+  "method": "20 warmups then 1,000 measured requests per state, 5 concurrent HTTP clients; each response parsed and checked for 5,000 rows",
+  "scenes": {
+    "valid": {
+      "requests": 1000,
+      "concurrency": 5,
+      "rows": 5000,
+      "states": ["current"],
+      "response_bytes_mean": 1085858,
+      "duration_seconds": 40.378,
+      "throughput_rps": 24.77,
+      "latency_ms": {"p50": 178.66, "p95": 248.31, "max": 558.98}
+    },
+    "historical": {
+      "requests": 1000,
+      "concurrency": 5,
+      "rows": 5000,
+      "states": ["historical"],
+      "response_bytes_mean": 1086266,
+      "duration_seconds": 40.816,
+      "throughput_rps": 24.5,
+      "latency_ms": {"p50": 179.58, "p95": 247.6, "max": 440.29}
+    },
+    "updating": {
+      "requests": 1000,
+      "concurrency": 5,
+      "rows": 5000,
+      "states": ["historical"],
+      "response_bytes_mean": 1085874,
+      "duration_seconds": 39.836,
+      "throughput_rps": 25.1,
+      "latency_ms": {"p50": 179.84, "p95": 235.14, "max": 376.98}
+    }
+  }
+}
