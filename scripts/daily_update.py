@@ -123,7 +123,10 @@ def _run_daily(settings, fast_mode, now, send_notification, *, progress=None, jo
     else:
         stage('fetch')
         try:
-            summary = pipeline.update_all(settings)
+            if 'progress' in inspect.signature(pipeline.update_all).parameters:
+                summary = pipeline.update_all(settings,progress=stage)
+            else:
+                summary = pipeline.update_all(settings)
             codes = summary.get("requested_codes") or summary.get("fresh_codes") or summary.get("updated") or []
         except Exception as exc:
             return {"blocked": True, "error": f"行情更新失败: {exc}"}

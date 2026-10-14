@@ -153,3 +153,45 @@ def test_haitong_delisting_gap_is_classified_as_suspension_after_final_session()
     delisted = inactive_status("600837", "2025-03-04")
     assert delisted is not None
     assert delisted["status"] == "delisted"
+
+
+def test_audit_uses_collected_universe_and_keeps_old_quotes(tmp_path, monkeypatch):
+    from data.pipeline import fetch_universe
+    from api.health_cache import market_signature
+    s = replace(Settings(), data=replace(Settings().data, db_path=str(tmp_path / 'market.db')))
+    db.init_db(s.data.db_path)
+    db.save_spot(s.data.db_path, pd.DataFrame([
+        dict(code=code,name=code,price=10,pct_change=0,volume=100,amount=1000)
+        for code in ['000001','000002']]))
+    before = market_signature(s)
+    monkeypatch.setattr('data.fetcher.fetch_universe', lambda **kw: ['000001'])
+    assert fetch_universe(s) == ['000001']
+    health = assess_data_health(s, now=dt.datetime(2026, 9, 28, 17))
+    assert health['eligible_codes'] == ['000001']
+    assert market_signature(s) != before
+    assert set(db.load_spot(s.data.db_path).code) == {'000001','000002'}
+    # Config changes cannot certify against a pool from the previous configuration.
+    changed = replace(s, universe=replace(s.universe, extra_codes=('000003',)))
+    other = assess_data_health(changed, now=dt.datetime(2026, 9, 28, 17))
+    assert other['error_code'] == 'universe_uncollected'
+    assert other['ready'] is False
+    assert all(not section['ready'] for section in other['conditions'].values())
+
+
+def test_collection_pool_failure_preserves_previous_scope(tmp_path, monkeypatch):
+    import pytest
+    from data.pipeline import fetch_universe
+    from api.health_cache import market_signature
+    s = replace(Settings(), data=replace(Settings().data, db_path=str(tmp_path / 'market.db')))
+    monkeypatch.setattr('data.fetcher.fetch_universe', lambda **kw: ['000001'])
+    fetch_universe(s)
+    before = market_signature(s)
+    monkeypatch.setattr('data.fetcher.fetch_universe', lambda **kw: [])
+    with pytest.raises(ValueError, match='证券池为空'):
+        fetch_universe(s)
+    assert market_signature(s) == before
+    health = assess_data_health(s, now=dt.datetime(2026, 9, 28, 17))
+    assert health['eligible_codes'] == ['000001']
+    db.save_spot(s.data.db_path, pd.DataFrame([
+        dict(code='000002',name='old',price=10,pct_change=0,volume=100,amount=1000)]))
+    assert market_signature(s) == before

@@ -239,8 +239,12 @@ class DailyJobRegistry:
 
     def latest_summary(self):
         job = ResultStore(load_settings().paths.artifact_dir).latest_job()
-        return deepcopy({key: job.get(key) for key in ('job_id','status','stage','created_at','started_at',
-            'finished_at','heartbeat_at','error','error_info','data_only')}) if job else None
+        if not job:
+            return None
+        value={key:job.get(key) for key in ('job_id','status','stage','created_at','started_at',
+            'finished_at','heartbeat_at','error','error_info','data_only')}
+        value['components']=((job.get('result') or {}).get('result') or {}).get('components')
+        return deepcopy(value)
 
     def get(self, job_id):
         # Current settings select the requested store. In-memory jobs from a
@@ -272,12 +276,36 @@ class DailyJobRegistry:
                 record_health_projection(settings, dict(ready=False, health_cache_stale=True,
                     reason='正在更新行情，当前操作需等待核验完成'), 'pending')
                 progress('fetch')
-                updated = pipeline.update_all(settings)
+                if 'progress' in inspect.signature(pipeline.update_all).parameters:
+                    updated = pipeline.update_all(settings,progress=progress)
+                else:
+                    updated = pipeline.update_all(settings)
                 progress('audit')
-                health = assess_data_health(settings, expected_codes=updated['requested_codes'])
-                record_health_projection(settings, health, 'passed' if health['ready'] else 'failed')
+                from api.health_cache import market_signature
+                from api.health_cache import minute_signature
+                from api.health_cache import HealthCache
+                from data.timeliness import exchange_now
+                audit_started=exchange_now()
+                time_key=HealthCache._time_key(settings,audit_started)
+                before=market_signature(settings)
+                minute_before=minute_signature(settings)
+                health = assess_data_health(settings,now=audit_started,expected_codes=updated['requested_codes'])
+                after=market_signature(settings)
+                audit_finished=exchange_now()
+                if minute_before!=minute_signature(settings) and not settings.engine.use_intraday_factors:
+                    health.update(minute_stale=True,minute_reason='分钟数据核验期间变化，需单独重新核验')
+                if before!=after or time_key!=HealthCache._time_key(settings,audit_finished):
+                    health.update(ready=False,training_ready=False,error_code='audit_version_changed',
+                                  reason='核验期间行情版本或有效交易时点变化，稍后重新核验')
+                health.update(health_checked_at=audit_finished.isoformat(),health_as_of=audit_started.isoformat())
+                record_health_projection(settings, health, 'passed' if health['ready'] else 'failed',signature=after)
+                from services.collection_status import collection_components
+                components,errors=collection_components(updated,health)
                 result = dict(update=updated, data_health=health, blocked=not health['ready'],
-                              error=health['reason'], last_date=health['trusted_trade_date'])
+                              error=('；'.join(f"{e.get('code',e.get('phase'))}: {e['message'][:200]}" for e in errors[:3])
+                                     + (f'（共{len(errors)}项，详见分项状态）' if len(errors)>3 else '')) or health['reason'],
+                              last_date=health.get('trusted_trade_date'),components=components,
+                              collection_success=not errors,collection_errors=errors)
             else:
                 kwargs = dict(settings=settings, fast_mode=fast_mode, send_notification=send_notification)
                 signature = inspect.signature(daily_update.run_daily)
@@ -286,7 +314,8 @@ class DailyJobRegistry:
                     if variadic or key in signature.parameters:
                         kwargs[key] = value
                 result = daily_update.run_daily(**kwargs)
-            blocked = bool(result.get('blocked'))
+            blocked = (not result['collection_success'] if data_only and 'collection_success' in result
+                       else bool(result.get('blocked')))
             date = result.get('last_date') if not blocked else None
             report = Path(settings.paths.artifact_dir)/'reports'/(str(date)+'.md')
             warnings = list(result.get('warnings', []))
@@ -299,7 +328,11 @@ class DailyJobRegistry:
             response = dict(success=not blocked, date=date, result=result, content=content,
                             reason=result.get('error') or '行情未通过检查' if blocked else '')
             status, error = ('failed', response['reason']) if blocked else ('succeeded', None)
-            self._update(store, job_id, status=status, stage='complete' if not blocked else store.get_job(job_id).get('stage'),
+            failed_stage=store.get_job(job_id).get('stage')
+            if data_only and result.get('collection_errors'):
+                phase=result['collection_errors'][0].get('phase')
+                failed_stage={'minute':'fetch_minute','raw_daily':'fetch_raw_daily','spot':'fetch_spot'}.get(phase,'fetch_daily')
+            self._update(store, job_id, status=status, stage='complete' if not blocked else failed_stage,
                          error=error, error_info=dict(code='generation_failed', message=error, retryable=True) if error else None,
                          result=response, warnings=warnings, finished_at=utc_now())
         except Exception as exc:
@@ -309,6 +342,12 @@ class DailyJobRegistry:
             else:
                 self._update(store, job_id, status='failed', error=str(exc),
                              error_info=dict(code='generation_failed', message=str(exc), retryable=True), finished_at=utc_now())
+                if data_only:
+                    from services.result_pipeline import record_health_projection
+                    previous=store.read_view().get('audit') or {}
+                    failed_health=dict(previous.get('health') or {},ready=False,training_ready=False,
+                                       error_code='collection_failed',reason=f"采集失败（{job.get('stage')}）: {exc}")
+                    record_health_projection(settings,failed_health,'failed')
         finally:
             stopped.set()
             if 'pulse' in locals():

@@ -106,6 +106,8 @@ def _fetch_universe_ak(base_pool: str = "hs300", extra_codes: tuple[str, ...] = 
     if base_pool == "hs300":
         raw = _ak.index_stock_cons_csindex(symbol="000300")
         codes = raw["成分券代码"].astype(str).str.zfill(6).tolist()
+    if base_pool and not codes:
+        raise RuntimeError('基础证券池为空，不能只用额外证券替代完整范围')
     codes += [c.zfill(6) for c in extra_codes]
     return sorted(set(codes))
 
@@ -364,6 +366,8 @@ def fetch_universe(base_pool: str = "hs300", extra_codes: tuple[str, ...] = ()) 
                     raise ValueError("empty")
             except Exception:
                 codes = _fetch_universe_sina(base_pool)
+    if base_pool and not codes:
+        raise RuntimeError('基础证券池为空，不能只用额外证券替代完整范围')
     codes += [c.zfill(6) for c in extra_codes]
     return sorted(set(codes))
 

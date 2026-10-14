@@ -9,6 +9,21 @@ import { loadComposable } from './helpers/module-loader.mjs'
 const fixtures = JSON.parse(fs.readFileSync(new URL('../../docs/work-package-a-20261012/contract-examples.json', import.meta.url), 'utf8'))
 const clone = name => structuredClone(fixtures[name])
 const flush = async () => { for (let i=0;i<12;i++) await Promise.resolve() }
+test('recheck displays the previous failure, elapsed time and missing dates',async()=>{
+  const value=clone('updating')
+  value.job={status:'failed',error:null}
+  value.audit_state='running'
+  value.audit={error:{message:'可信覆盖不足'},elapsed_seconds:49,
+    expected_trade_date:'2026-10-12',missing_codes:['000568'],insufficient_recent_history:['601995']}
+  const t=setup({getSignalsSnapshot:async()=>value})
+  try {
+    await t.page.loadSignals()
+    assert.match(t.page.statusMessage.value,/可信覆盖不足/)
+    assert.match(t.page.statusMessage.value,/49 秒/)
+    assert.match(t.page.statusMessage.value,/2026-10-12.*000568/)
+    assert.match(t.page.statusMessage.value,/601995/)
+  } finally {t.dispose()}
+})
 function deferred() { let resolve; const promise=new Promise(yes=>{resolve=yes}); return {promise,resolve} }
 function setup(api) {
   const timers=new Map(), unmounted=[], emitted=[]

@@ -6,7 +6,7 @@ import datetime as dt
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from api.ws import get_market_trading_status
 from config.settings import load_settings, settings_version
@@ -16,9 +16,18 @@ from services.result_store import ResultStore, ResultStoreError
 from services.result_contract import build_snapshot_response
 from data.timeliness import exchange_now
 from data import db
-from data.health import assess_data_health, recommendation_state
+from data.health import assess_data_health, recommendation_state, health_conditions
 
 router = APIRouter(prefix="/api/status", tags=["status"])
+
+
+@router.post('/refresh')
+def retry_market_collection():
+    from api.jobs import JobConflict
+    try:
+        return daily_jobs.start(False,data_only=True,send_notification=False)
+    except JobConflict as exc:
+        raise HTTPException(status_code=409,detail=str(exc))
 
 
 def evaluate_daemon_status(hb: dict | None, max_delay_seconds: int = 180) -> dict[str, Any]:
@@ -60,11 +69,15 @@ def evaluate_daemon_status(hb: dict | None, max_delay_seconds: int = 180) -> dic
 @router.get("")
 def get_system_status() -> dict[str, Any]:
     settings = load_settings()
+    audit_state='unknown'
+    conditions=None
     try:
         view = ResultStore(settings.paths.artifact_dir).read_view()
         current = exchange_now()
         response = build_snapshot_response(view, settings, now=current)
         audit = view.get('audit') or {}
+        audit_state=response['audit_state']
+        conditions=response['data_conditions']
         data_health = dict(audit.get('health') or {})
         try:
             deadline = dt.datetime.fromisoformat(audit.get('valid_until') or '')
@@ -127,6 +140,7 @@ def get_system_status() -> dict[str, Any]:
         "config_version": settings_version(settings),
         "market": get_market_trading_status(),
         "data_health": data_health,
+        "data_conditions": conditions or health_conditions(data_health,audit_state=audit_state,fresh=False),
         "data_update": daily_jobs.latest_summary(),
         "recommendation": recommendation,
         "daemon": daemon_info,

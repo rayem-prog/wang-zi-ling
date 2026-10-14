@@ -14,6 +14,18 @@ def exchange_now(now: dt.datetime | None = None) -> dt.datetime:
     return now.replace(tzinfo=SHANGHAI) if now.tzinfo is None else now.astimezone(SHANGHAI)
 
 
+def collection_minute_target(now=None):
+    current=exchange_now(now)
+    expected=minute_cache_state(None,None,now=current)['expected_at']
+    if not expected:
+        return None,None
+    target=dt.datetime.fromisoformat(expected)
+    # The live source has the same five-minute latency allowance as freshness checks.
+    if target.date()==current.date() and target.time()<dt.time(15):
+        target-=dt.timedelta(minutes=5)
+    return target.date().isoformat(),target.strftime('%H:%M')
+
+
 def minute_cache_state(date: str | None, time: str | None, *, now: dt.datetime | None = None,
                        tolerance_minutes: int = 5) -> dict:
     current = exchange_now(now)

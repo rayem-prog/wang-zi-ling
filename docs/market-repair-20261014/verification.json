@@ -1,0 +1,25 @@
+{
+  "checked_on": "2026-10-14",
+  "backend": {
+    "command": ".venv/bin/python -m pytest -q",
+    "passed": 518,
+    "failed": 0,
+    "warnings": 2,
+    "duration_seconds": 143.12
+  },
+  "frontend": {
+    "command": "npm test",
+    "passed": 54,
+    "failed": 0
+  },
+  "diff_check": {
+    "command": "git diff --cached --check",
+    "passed": true
+  },
+  "historical_gap_segments": 69,
+  "confirmed_suspended_sessions": 431,
+  "unexplained_segments": 0,
+  "live_collection_acceptance_on": "2026-10-13",
+  "live_collection_errors": 0,
+  "live_minute_rows_added": 7503
+}

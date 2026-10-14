@@ -189,28 +189,46 @@ def update_daily_incremental(settings, codes: list[str] | None = None,
     }
 
 
-def update_all(settings) -> dict:
+def update_all(settings, progress=None) -> dict:
+    def stage(name):
+        if progress:
+            progress(name)
     from data.verified_daily import update_verified_daily
+    stage('fetch_daily')
     result = update_verified_daily(settings)
     from dataclasses import replace
     from pathlib import Path
     raw_path = Path(settings.data.db_path).with_name('raw-' + Path(settings.data.db_path).name)
     raw_settings = replace(settings, data=replace(settings.data, db_path=str(raw_path), adjust='none'))
+    stage('fetch_raw_daily')
     result['raw_update'] = update_verified_daily(raw_settings, codes=result['requested_codes'])
     # 日线、报价与分钟缓存分别记录结果，辅助数据失败不伪装成整体成功。
     try:
+        stage('fetch_spot')
         quotes = spot_snapshot(settings, result['requested_codes'])
         result['spot_rows'] = len(quotes)
     except Exception as exc:
         result['spot_error'] = str(exc)
-    import sqlite3
-    with sqlite3.connect(settings.data.db_path) as conn:
-        latest = dict(conn.execute("SELECT code,MAX(date||' '||time) FROM minute_bars GROUP BY code"))
-    target = result['target_trade_date'] + ' 15:00'
-    missing = [c for c in result['requested_codes'] if latest.get(c, '') < target]
+    from data.incremental import minute_missing_times
+    from data.timeliness import collection_minute_target
+    minute_date,through=collection_minute_target()
+    if minute_date is None:
+        minute_date,through=result['target_trade_date'],'15:00'
+    minute_gaps={}
+    for code in result['requested_codes']:
+        frame=db.load_training_minute_bars(settings.data.db_path,code,date=minute_date)
+        gaps=minute_missing_times(frame,through=through)
+        if gaps:
+            minute_gaps[code]=gaps
+    missing=list(minute_gaps)
+    result['minute_gaps']=minute_gaps
+    result['minute_target_date']=minute_date
+    result['minute_required_through']=through
+    result['minute_update']=dict(requested_codes=missing,updated=[],failed=[],failed_details={},empty=[],bars_added=0)
     if missing:
+        stage('fetch_minute')
         result['minute_update'] = update_minute_bars(settings, codes=missing,
-                                                   date=result['target_trade_date'])
+                                                   date=minute_date, require_complete=True, required_through=through)
     return result
 
 
@@ -219,6 +237,8 @@ def update_minute_bars(
     codes: list[str] | None = None,
     date: str | None = None,
     sleep_jitter: bool = False,
+    require_complete: bool = False,
+    required_through: str = '15:00',
 ) -> dict:
     if codes is None:
         codes = fetch_universe(settings)
@@ -242,6 +262,11 @@ def update_minute_bars(
                                 "unknown", "empty", 0, kind="minute")
                 continue
             source = mbars.attrs.get("source", "unknown")
+            if require_complete:
+                from data.incremental import minute_missing_times
+                gaps=minute_missing_times(mbars,through=required_through)
+                if gaps:
+                    raise ValueError('分钟响应不完整，缺少: '+','.join(gaps))
             added = db.save_minute_bars(settings.data.db_path, code, mbars, source=source)
             db.record_fetch(settings.data.db_path, code, date or "", date or "",
                             source, "ok", added, kind="minute")
@@ -255,6 +280,7 @@ def update_minute_bars(
 
     return {
         "updated": updated,
+        "requested_codes": codes,
         "failed": failed,
         "failed_details": failed_details,
         "empty": empty,
@@ -271,7 +297,9 @@ def spot_snapshot(settings, codes: list[str]) -> object:
 
 
 def fetch_universe(settings) -> list[str]:
-    return fetcher.fetch_universe(
+    codes = fetcher.fetch_universe(
         base_pool=settings.universe.base_pool,
         extra_codes=tuple(settings.universe.extra_codes),
     )
+    db.save_collection_universe(settings.data.db_path, settings.universe, codes)
+    return codes

@@ -15,6 +15,8 @@ frontend/.vite/
 
 # User data, transaction logs, databases and generated reports
 data/**/*.db
+data/**/*.db-wal
+data/**/*.db-shm
 data/**/*.sqlite
 data/**/*.sqlite3
 artifacts/*

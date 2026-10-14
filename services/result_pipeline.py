@@ -47,13 +47,21 @@ def record_health_projection(settings, health, status, signature=None, *, now=No
     store = ResultStore(settings.paths.artifact_dir)
     previous = store.read_view().get('audit') or {}
     current = exchange_now(now)
+    rechecking = status in ('pending', 'running')
+    if rechecking:
+        health = {**previous.get('health', {}), **health}
+        if previous.get('error'):
+            health['reason'] = previous['error']['message']
+        health = {**health, 'ready': False, 'training_ready': False}
     ready = status == 'passed' and health.get('ready') is True
     checked_value = health.get('health_checked_at')
     checked = exchange_now(dt.datetime.fromisoformat(checked_value)).isoformat() if checked_value else current.isoformat()
     deadline = audit_deadline(settings, health.get('trade_date'), current) if ready else None
     if deadline:
-        deadline = min(dt.datetime.fromisoformat(deadline), current + dt.timedelta(seconds=min(ttl_seconds, 120))).isoformat()
-    error = None
+        lifetime=dt.timedelta(seconds=min(ttl_seconds,120))
+        deadline = min(dt.datetime.fromisoformat(deadline),current+lifetime,
+                       dt.datetime.fromisoformat(checked)+lifetime).isoformat()
+    error = previous.get('error') if rechecking else None
     if status == 'failed':
         error = dict(code=health.get('error_code', 'audit_failed'),
                      message=health.get('reason') or '健康审计未完成', retryable=True)
@@ -73,6 +81,9 @@ def record_health_projection(settings, health, status, signature=None, *, now=No
                       source=health.get('source', previous.get('source')),
                       trade_date=health.get('trade_date', previous.get('trade_date')),
                       health_as_of=health.get('health_as_of', previous.get('health_as_of')),
+                      started_at=(previous.get('started_at') or current.isoformat()
+                                  if previous.get('state') in ('pending', 'running')
+                                  else current.isoformat()),
                       health=dict(health))
     store.record_audit(projection)
     return projection

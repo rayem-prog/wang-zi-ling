@@ -7,9 +7,22 @@ This small override table records official exchange/company notices checked on
 from __future__ import annotations
 
 import datetime as dt
+import json
+from pathlib import Path
 
 
 SECURITIES = {
+    "601995": {
+        "suspension_intervals": [
+            {"start": "2025-11-20", "end": "2025-12-17", "resumed_on": "2025-12-18",
+             "source": "https://paper.cnstock.com/html/2025-12/18/content_2159676.htm",
+             "reason": "筹划重大资产重组停牌；临2025-047确认2025-12-18复牌。"},
+            {"start": "2026-09-15", "end": "2026-09-22", "resumed_on": "2026-09-23",
+             "source": "https://money.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=12616622&stockid=601995",
+             "start_source": "https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=12588539&stockid=601995",
+             "reason": "实施A股异议股东收购请求权停牌；公司公告确认2026-09-23复牌。"},
+        ],
+    },
     "000792": {
         "listed_on": "2021-08-10",
         "source": "https://disc.static.szse.cn/download/disc/disk02/finalpage/2021-08-03/98aaca67-7c8d-4afb-bb61-e1aeaf7118f8.PDF",
@@ -126,6 +139,12 @@ SECURITIES = {
     },
 }
 
+# Finite historical stops are documented separately from IPO/ongoing lifecycle
+# facts. Only reviewed issuer notices are admitted to this shipped registry.
+for _interval in json.loads(Path(__file__).with_name('security_suspensions.json').read_text()):
+    _metadata = SECURITIES.setdefault(_interval['code'], {})
+    _metadata.setdefault('suspension_intervals', []).append(_interval)
+
 
 def security_metadata(code: str) -> dict | None:
     return SECURITIES.get(str(code).zfill(6))
@@ -145,4 +164,10 @@ def inactive_status(code: str, on_date: str) -> dict | None:
     if suspended and day >= dt.date.fromisoformat(suspended):
         return {"code": str(code).zfill(6), "status": "suspended", "effective_date": suspended,
                 "reason": meta["note"], "source": meta.get("suspension_source", meta["source"])}
+    for interval in meta.get('suspension_intervals', []):
+        if interval['start'] <= on_date <= interval['end']:
+            return {"code": str(code).zfill(6), "status": "suspended",
+                    "effective_date": interval['start'], "end_date": interval['end'],
+                    "resumed_on": interval['resumed_on'], "reason": interval['reason'],
+                    "source": interval['source'], "start_source": interval.get('start_source',interval['source'])}
     return None

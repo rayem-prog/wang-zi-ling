@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 import datetime as dt
+import json
 from hashlib import sha256
 from pathlib import Path
 import sqlite3
@@ -21,19 +23,23 @@ def market_signature(settings):
     path = Path(settings.data.db_path).resolve()
     if not path.exists():
         return (str(path), 'missing')
-    with sqlite3.connect(f'file:{path}?mode=ro', uri=True) as conn:
+    with closing(sqlite3.connect(f'file:{path}?mode=ro', uri=True)) as conn:
         conn.execute('BEGIN')
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        parts = [str(path)]
+        from data.security_master import SECURITIES
+        parts = [str(path), ('security_facts', sha256(
+            json.dumps(SECURITIES, sort_keys=True, ensure_ascii=False).encode()).hexdigest())]
         if 'market_input_version' in tables:
-            row = conn.execute('SELECT version FROM market_input_version WHERE id=1').fetchone()
+            columns={r[1] for r in conn.execute('PRAGMA table_info(market_input_version)')}
+            column='version' if settings.engine.use_intraday_factors or 'daily_version' not in columns else 'daily_version'
+            row = conn.execute(f'SELECT {column} FROM market_input_version WHERE id=1').fetchone()
             if row is None:
                 raise RuntimeError('行情版本记录缺失')
             parts.append(('market_input_version', row[0]))
         else:
             # Read-only legacy access cannot install triggers. Hash actual rows
             # until normal application startup migrates the database.
-            for table in ('bars', 'minute_bars'):
+            for table in (('bars','minute_bars') if settings.engine.use_intraday_factors else ('bars',)):
                 if table not in tables:
                     parts.append((table, 'missing'))
                     continue
@@ -45,17 +51,41 @@ def market_signature(settings):
                 parts.append((table, digest.hexdigest()))
         for table in ('active_bar_snapshots', 'bar_snapshots', 'active_minute_snapshots',
                       'minute_snapshots', 'data_source_batches'):
+            if 'minute' in table and not settings.engine.use_intraday_factors:
+                continue
             if table in tables:
                 columns = 'evidence,source,captured_at' if table == 'data_source_batches' else '*'
-                parts.append((table, tuple(conn.execute(f'SELECT {columns} FROM {table} ORDER BY 1,2').fetchall())))
-        if 'spot' in tables:
+                where=" WHERE evidence IN (SELECT DISTINCT evidence FROM bars)" if table=='data_source_batches' and not settings.engine.use_intraday_factors else ''
+                parts.append((table, tuple(conn.execute(f'SELECT {columns} FROM {table}{where} ORDER BY 1,2').fetchall())))
+        universe = None
+        if 'collection_universe' in tables:
+            from data.db import universe_key
+            universe = conn.execute('SELECT codes FROM collection_universe WHERE config=?',
+                                    (universe_key(settings.universe),)).fetchone()
+        if universe is not None:
+            parts.append(('collection_universe', universe[0]))
+        elif 'spot' in tables:
             parts.append(('spot_universe', tuple(conn.execute('SELECT code FROM spot ORDER BY code').fetchall())))
         if 'bar_revisions' in tables:
-            parts.append(('revisions', conn.execute('SELECT MAX(id) FROM bar_revisions').fetchone()[0]))
+            where=" WHERE kind='daily'" if not settings.engine.use_intraday_factors else ''
+            parts.append(('revisions', conn.execute('SELECT MAX(id) FROM bar_revisions'+where).fetchone()[0]))
         # This detects replacement even if dates and versions happen to be identical.
         stat = path.stat()
         parts.append(('file', stat.st_dev, stat.st_ino))
     return tuple(parts)
+
+
+def minute_signature(settings):
+    path=Path(settings.data.db_path).resolve()
+    if not path.exists():
+        return None
+    with closing(sqlite3.connect(f'file:{path}?mode=ro',uri=True)) as conn:
+        columns={r[1] for r in conn.execute('PRAGMA table_info(market_input_version)')}
+        if not columns:
+            return None
+        column='minute_version' if 'minute_version' in columns else 'version'
+        row=conn.execute(f'SELECT {column} FROM market_input_version WHERE id=1').fetchone()
+        return row[0] if row else None
 
 
 class HealthCache:
@@ -64,6 +94,7 @@ class HealthCache:
         self.audit, self.ttl_seconds, self.clock, self.signature = audit, ttl_seconds, clock, signature
         self._lock = Lock()
         self._entries = {}
+        self._minute_entries = {}
         self._refresh_lock = Lock()
         self._refreshing = set()
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='health-audit')
@@ -76,6 +107,19 @@ class HealthCache:
                                      now=now, ttl_seconds=self.ttl_seconds)
         except ResultStoreError:
             logging.getLogger('stockpilot.health').exception('健康审计状态无法持久化')
+
+    def _cached_result(self, settings, key, old):
+        result=deepcopy(old[2])
+        if not settings.engine.use_intraday_factors:
+            current_minute=minute_signature(settings)
+            if current_minute!=self._minute_entries.get(key):
+                result.update(minute_stale=True,minute_reason='分钟数据已更新，需单独重新核验')
+                from data.health import health_conditions
+                result['conditions']=health_conditions(result)
+                self._entries[key]=(old[0],old[1],deepcopy(result))
+                self._minute_entries[key]=current_minute
+                self._persist(settings,result,'passed' if result.get('ready') else 'failed',signature=old[0][0])
+        return result
 
     @staticmethod
     def _time_key(settings, current):
@@ -90,7 +134,7 @@ class HealthCache:
         try:
             signature = (self.signature(settings), self._time_key(settings, normalize_exchange_time(exchange_now())))
             if old and old[0] == signature and self.clock()-old[1] < self.ttl_seconds:
-                return deepcopy(old[2])
+                return self._cached_result(settings,key,old)
         except Exception:
             pass  # Revalidation failure cannot make an old ready entry usable.
         pending = deepcopy(old[2]) if old else dict(trade_date=None, coverage=0.)
@@ -105,7 +149,6 @@ class HealthCache:
 
     def _refresh(self, settings, key):
         try:
-            self._persist(settings, {}, 'running')
             self.get(settings, wait=True)
         finally:
             with self._refresh_lock:
@@ -127,11 +170,22 @@ class HealthCache:
                 signature = (self.signature(settings), self._time_key(settings, current))
                 old = self._entries.get(key)
                 if old and old[0] == signature and now - old[1] < self.ttl_seconds:
-                    return deepcopy(old[2])
+                    result = self._cached_result(settings,key,old)
+                    # A queued recheck may have recorded pending before another
+                    # worker completed this audit. Restore its existing certificate;
+                    # checked_at still caps the expiry and cannot be renewed here.
+                    self._persist(settings,result,'passed' if result.get('ready') else 'failed',
+                                  signature=signature[0],now=current)
+                    return result
                 self._persist(settings, old[2] if old else {}, 'running', now=current)
+                minute_before=minute_signature(settings)
                 result = dict(self.audit(settings))
                 finished = normalize_exchange_time(exchange_now())
                 after = (self.signature(settings), self._time_key(settings, finished))
+                if minute_before!=minute_signature(settings) and not settings.engine.use_intraday_factors:
+                    result.update(minute_stale=True,minute_reason='分钟数据核验期间变化，需单独重新核验')
+                    from data.health import health_conditions
+                    result['conditions']=health_conditions(result)
                 session_changed = (_expected_session(current) != _expected_session(finished)
                     or calendar_verified(current.date()) != calendar_verified(finished.date()))
                 minute_changed = settings.engine.use_intraday_factors and after[1] != signature[1]
@@ -142,12 +196,16 @@ class HealthCache:
                     health_checked_at=finished.isoformat(timespec='seconds'))
                 self._persist(settings, result, 'passed' if result.get('ready') else 'failed', signature=after[0], now=finished)
                 self._entries[key] = (after, self.clock(), deepcopy(result))
+                self._minute_entries[key]=minute_signature(settings)
                 if len(self._entries) > 8:
-                    del self._entries[next(iter(self._entries))]
+                    removed=next(iter(self._entries))
+                    del self._entries[removed]
+                    self._minute_entries.pop(removed,None)
                 return result
             except Exception as exc:
                 # A failed revalidation can never resurrect a previously ready snapshot.
                 prior = self._entries.pop(key, None)
+                self._minute_entries.pop(key,None)
                 failed = deepcopy(prior[2]) if prior else dict(trade_date=None, coverage=0.)
                 failed.update(ready=False, reason=f'健康审计未完成: {exc}', health_cache_stale=True,
                               training_ready=False, health_checked_at=finished.isoformat(timespec='seconds'))

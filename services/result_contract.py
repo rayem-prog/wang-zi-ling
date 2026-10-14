@@ -8,6 +8,7 @@ from datetime import datetime
 
 from config.settings import settings_version
 from services.action_permissions import evaluate_action_permissions
+from data.health import health_conditions
 
 
 FILTER_DEFAULTS = {"bracket": "all", "min_price": None, "max_price": None,
@@ -83,6 +84,26 @@ def build_snapshot_response(view: dict, settings, *, now: datetime, filters=None
     audit_state = certificate.get("state", "unknown")
     if audit_state not in {"unknown", "pending", "running", "passed", "failed"}:
         audit_state = "unknown"
+    health = certificate.get('health') or {}
+    fresh=False
+    try:
+        checked=datetime.fromisoformat(certificate.get('checked_at') or '')
+        fresh=checked.tzinfo is not None and 0<=(now-checked).total_seconds()<120
+        if audit_state=='passed':
+            fresh=fresh and _future(certificate.get('valid_until'),now)
+    except (ValueError,TypeError):
+        pass
+    audit.update(started_at=certificate.get('started_at'),
+                 missing_codes=health.get('missing_codes', []),
+                 insufficient_recent_history=health.get('classifications', {}).get('insufficient_recent_history', []),
+                 expected_trade_date=health.get('expected_trade_date'), elapsed_seconds=None)
+    if audit_state in ('pending', 'running') and audit['started_at']:
+        try:
+            started = datetime.fromisoformat(audit['started_at'])
+            if started.tzinfo is not None:
+                audit['elapsed_seconds'] = max(0, int((now-started).total_seconds()))
+        except (ValueError, TypeError):
+            pass
 
     versions = dict(snapshot["versions"]) if snapshot else {"data": None, "strategy": None, "parameters": None}
     if snapshot is None:
@@ -164,6 +185,8 @@ def build_snapshot_response(view: dict, settings, *, now: datetime, filters=None
         "result_state": state,
         "audit_state": audit_state,
         "audit": audit,
+        "data_conditions": health_conditions(health,
+            audit_state='running' if job.get('status') in ('queued','running') else audit_state,fresh=fresh),
         "job": job,
         "action_permissions": permissions,
         "blocked_reasons": reasons,

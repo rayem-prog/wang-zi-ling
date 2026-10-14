@@ -184,3 +184,11 @@ def test_final_partial_exchange_holiday_does_not_discard_valid_history(monkeypat
     monkeypatch.setattr(fetcher, "_fetch_daily_em", lambda *a, **k: pd.DataFrame())
     out = fetcher.fetch_daily("000001", "2021-01-01", "2023-01-02")
     assert len(out) == 2
+
+
+def test_empty_base_universe_cannot_be_hidden_by_extra_codes(monkeypatch):
+    monkeypatch.setattr(fetcher, '_fetch_universe_sina', lambda *args: [])
+    monkeypatch.setattr(fetcher, '_fetch_universe_ak', lambda *args: [])
+    with pytest.raises(RuntimeError, match='基础证券池为空'):
+        fetcher.fetch_universe(base_pool='hs300', extra_codes=('000002',))
+    assert fetcher.fetch_universe(base_pool='', extra_codes=('000002',)) == ['000002']

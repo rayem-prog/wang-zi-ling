@@ -190,12 +190,15 @@ def test_health_rejects_changed_market_during_audit():
 
 
 def test_incomplete_universe_can_review_verified_holdings_but_never_add_exposure(monkeypatch):
+    import datetime as dt
     import pandas as pd
     from config.settings import Settings
     from services import personal_plan
     from data import db
     from strategy import holdings
     monkeypatch.setattr(personal_plan, 'load_settings', lambda: Settings())
+    monkeypatch.setattr(personal_plan, 'exchange_now',
+                        lambda: dt.datetime.fromisoformat('2026-10-11T10:00:00+08:00'))
     health=dict(ready=False,reason='部分股票历史缺口',trade_date='2026-10-09',trusted_trade_date='2026-10-09',eligible_codes=['000001'],trusted_codes=['000001'],trusted_history_codes=['000001'],source='fixture',coverage=1.)
     monkeypatch.setattr(personal_plan.health_cache,'get',lambda settings, **kwargs: health)
     dates=pd.bdate_range('2026-06-01',periods=80).date

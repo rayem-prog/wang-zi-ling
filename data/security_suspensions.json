@@ -1,0 +1,628 @@
+[
+  {
+    "code": "000063",
+    "start": "2021-03-31",
+    "end": "2021-03-31",
+    "resumed_on": "2021-04-01",
+    "source": "https://static.cninfo.com.cn/finalpage/2021-04-01/1209567370.PDF",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2021-03-31/1209484316.PDF",
+    "reason": "并购重组委审核发行股份购买资产事项"
+  },
+  {
+    "code": "000301",
+    "start": "2021-04-26",
+    "end": "2021-05-12",
+    "resumed_on": "2021-05-13",
+    "source": "https://notice.10jqka.com.cn/api/pdf/fc0addd996bb2e57.pdf",
+    "reason": "重大资产重组",
+    "notes": "2021-067号公告明确4月26日起停牌、5月13日复牌；2021-076号进展公告亦确认两端。"
+  },
+  {
+    "code": "000301",
+    "start": "2021-12-22",
+    "end": "2021-12-22",
+    "resumed_on": "2021-12-23",
+    "source": "https://static.cninfo.com.cn/finalpage/2021-12-23/1211991694.PDF",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2021-12-22/1211980814.PDF",
+    "reason": "并购重组委审核斯尔邦重大资产重组事项"
+  },
+  {
+    "code": "000408",
+    "start": "2021-05-11",
+    "end": "2021-05-11",
+    "resumed_on": "2021-05-12",
+    "source": "https://disc.static.szse.cn/download/disc/disk02/finalpage/2021-05-11/f9006990-ffd3-40bb-9cb9-be8dc0511516.PDF",
+    "reason": "撤销退市风险警示",
+    "notes": "公告2021-52明确5月11日停牌一天、5月12日恢复交易。"
+  },
+  {
+    "code": "000408",
+    "start": "2025-01-10",
+    "end": "2025-01-16",
+    "resumed_on": "2025-01-17",
+    "source": "https://finance.sina.com.cn/jjxw/2025-01-17/doc-ineffpzn3563678.shtml",
+    "reason": "筹划控制权变更",
+    "notes": "公告明确停牌起始日和复牌日；end 为复牌前最后一个缺口交易日。",
+    "start_source": "https://money.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=10702978&stockid=000408"
+  },
+  {
+    "code": "000425",
+    "start": "2021-04-07",
+    "end": "2021-04-20",
+    "resumed_on": "2021-04-21",
+    "source": "https://money.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=8004086&stockid=000425",
+    "reason": "吸收合并重大资产重组",
+    "notes": "2021年度报告明确4月7日开市停牌、4月21日开市复牌。"
+  },
+  {
+    "code": "000425",
+    "start": "2022-05-27",
+    "end": "2022-05-27",
+    "resumed_on": "2022-05-30",
+    "source": "https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=8257541&stockid=000425",
+    "reason": "并购重组委审核吸收合并事项",
+    "notes": "公告明确停牌起始日和复牌日；end 为复牌前最后一个缺口交易日。",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2022-05-27/1213514629.PDF"
+  },
+  {
+    "code": "000425",
+    "start": "2022-08-01",
+    "end": "2022-08-16",
+    "resumed_on": "2022-08-17",
+    "source": "https://static.cninfo.com.cn/finalpage/2022-08-17/1214308336.PDF",
+    "reason": "吸收合并现金选择权派发、行权及清算"
+  },
+  {
+    "code": "000877",
+    "start": "2021-08-25",
+    "end": "2021-08-25",
+    "resumed_on": "2021-08-26",
+    "source": "https://static.cninfo.com.cn/finalpage/2021-08-26/1210861650.PDF",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2021-08-25/1210840687.PDF",
+    "reason": "并购重组委审核发行股份及支付现金购买资产事项"
+  },
+  {
+    "code": "000983",
+    "start": "2021-08-09",
+    "end": "2021-08-19",
+    "resumed_on": "2021-08-20",
+    "source": "https://finance.sina.com.cn/roll/2021-08-20/doc-ikqciyzm2481411.shtml",
+    "reason": "筹划购买华晋焦煤等重大资产重组",
+    "notes": "2021-045公告正文第60与65行分别明确停牌、复牌日期。"
+  },
+  {
+    "code": "000983",
+    "start": "2022-12-19",
+    "end": "2022-12-19",
+    "resumed_on": "2022-12-20",
+    "source": "https://static.cninfo.com.cn/finalpage/2022-12-20/1215397242.PDF",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2022-12-19/1215375350.PDF",
+    "reason": "并购重组委审核发行股份及支付现金购买资产并募集配套资金事项",
+    "notes": "停牌公告2022-103明确股票于2022-12-19开市起停牌；复牌公告2022-104明确股票于2022-12-20开市起复牌。两份巨潮PDF正文已读取。"
+  },
+  {
+    "code": "001979",
+    "start": "2022-12-05",
+    "end": "2022-12-16",
+    "resumed_on": "2022-12-19",
+    "source": "https://disc.static.szse.cn/disc/disk03/finalpage/2022-12-16/c3913d5d-c700-4966-9456-ed64cbfd6ca6.PDF",
+    "reason": "发行股份购买资产并募集配套资金",
+    "notes": "公告明确停牌起始日和复牌日；end 为复牌前最后一个缺口交易日。"
+  },
+  {
+    "code": "002049",
+    "start": "2025-12-30",
+    "end": "2026-01-14",
+    "resumed_on": "2026-01-15",
+    "source": "https://static.cninfo.com.cn/finalpage/2026-01-15/1224934010.PDF",
+    "reason": "发行股份及支付现金购买瑞能半导体",
+    "notes": "2026-006公告明确2025年12月30日停牌与2026年1月15日复牌。"
+  },
+  {
+    "code": "002142",
+    "start": "2021-11-24",
+    "end": "2021-12-01",
+    "resumed_on": "2021-12-02",
+    "source": "https://pdf.dfcfw.com/pdf/H2_AN202112011532251528_1.pdf",
+    "reason": "配股发行",
+    "notes": "配股说明书摘要时间表明确11月24日起全天停牌，12月1日清算，发行结果公告明确12月2日复牌。",
+    "start_source": "https://pdf.dfcfw.com/pdf/H2_AN202111181529772272_1.pdf"
+  },
+  {
+    "code": "002180",
+    "start": "2021-02-08",
+    "end": "2021-02-09",
+    "resumed_on": "2021-02-10",
+    "source": "https://epaper.cs.com.cn/zgzqb/html/2021-02/09/nw.D110000zgzqb_20210209_1-B036.htm",
+    "reason": "重大重组方案调整",
+    "notes": "2021-008公告明确2月8日起停牌与2月10日复牌。"
+  },
+  {
+    "code": "002180",
+    "start": "2021-08-25",
+    "end": "2021-08-25",
+    "resumed_on": "2021-08-26",
+    "source": "https://static.cninfo.com.cn/finalpage/2021-08-26/1210861668.PDF",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2021-08-25/1210842172.PDF",
+    "reason": "并购重组委审核发行股份及支付现金购买资产并募集配套资金事项",
+    "notes": "停牌公告2021-090明确2021-08-25并购重组委会议召开当天开市起停牌；复牌公告2021-091明确2021-08-26开市起复牌。两份巨潮PDF正文已读取。"
+  },
+  {
+    "code": "002252",
+    "start": "2024-12-23",
+    "end": "2025-01-06",
+    "resumed_on": "2025-01-07",
+    "source": "https://static.cninfo.com.cn/finalpage/2025-01-07/1222247050.PDF",
+    "reason": "筹划换股吸收合并上海莱士后终止",
+    "notes": "公告明确停牌起始日和复牌日；end 为复牌前最后一个缺口交易日。"
+  },
+  {
+    "code": "002352",
+    "start": "2021-02-05",
+    "end": "2021-02-09",
+    "resumed_on": "2021-02-10",
+    "source": "https://static.cninfo.com.cn/finalpage/2021-02-10/1209265994.PDF",
+    "start_source": "https://www.szse.cn/disclosure/notice/t20210205_584686.html",
+    "reason": "筹划部分要约收购嘉里物流控制权等重大事项",
+    "notes": "深交所2021-02-05临时停牌公告明确当日开市起停牌；公司复牌公告2021-022明确2021-02-10上午开市起复牌，并回述2021-02-05起停牌。复牌巨潮PDF正文已读取。"
+  },
+  {
+    "code": "002736",
+    "start": "2024-08-22",
+    "end": "2024-09-04",
+    "resumed_on": "2024-09-05",
+    "source": "https://static.cninfo.com.cn/finalpage/2024-09-05/1221139481.PDF",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2024-08-22/1220939795.PDF",
+    "reason": "筹划发行股份购买万和证券控制权事项",
+    "notes": "停牌公告2024-066明确2024-08-22开市起停牌；复牌公告2024-073明确2024-09-05开市起复牌，并回述停牌起始日期。两份巨潮PDF正文已读取。"
+  },
+  {
+    "code": "002812",
+    "start": "2021-06-16",
+    "end": "2021-06-22",
+    "resumed_on": "2021-06-23",
+    "source": "https://epaper.cs.com.cn/zgzqb/html/2021-06/23/nw.D110000zgzqb_20210623_3-A29.htm",
+    "reason": "购买上海恩捷股权",
+    "notes": "2021-104公告正文明确6月16日停牌、6月23日复牌。"
+  },
+  {
+    "code": "002812",
+    "start": "2025-12-01",
+    "end": "2025-12-12",
+    "resumed_on": "2025-12-15",
+    "source": "https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=11709577&stockid=002812",
+    "reason": "发行股份购买资产并募集配套资金",
+    "notes": "公告明确停牌起始日和复牌日；end 为复牌前最后一个缺口交易日。"
+  },
+  {
+    "code": "300142",
+    "start": "2026-03-17",
+    "end": "2026-03-18",
+    "resumed_on": "2026-03-19",
+    "source": "https://disc.static.szse.cn/download/disc/disk03/finalpage/2026-03-19/2adb89a1-e3b6-4a86-a60a-a6e5b6eec058.PDF",
+    "reason": "筹划控制权变更",
+    "notes": "2026-030公告明确3月17日停牌、3月19日开市复牌。"
+  },
+  {
+    "code": "301269",
+    "start": "2025-03-17",
+    "end": "2025-03-28",
+    "resumed_on": "2025-03-31",
+    "source": "https://disc.static.szse.cn/disc/disk03/finalpage/2025-03-28/7bd94121-2122-4378-ad0c-1b6b48f168b1.PDF",
+    "reason": "发行股份购买芯和半导体",
+    "notes": "2025-011公告明确3月17日开市停牌与3月31日开市复牌。"
+  },
+  {
+    "code": "600009",
+    "start": "2021-06-10",
+    "end": "2021-06-24",
+    "resumed_on": "2021-06-25",
+    "source": "https://paper.cnstock.com/html/2021-09/24/content_1522740.htm",
+    "reason": "重大资产重组",
+    "notes": "公告同时明确停牌与复牌日期"
+  },
+  {
+    "code": "600009",
+    "start": "2022-04-08",
+    "end": "2022-04-08",
+    "resumed_on": "2022-04-11",
+    "source": "https://www.shanghaiairport.com/uploadfiles/2022/05/202205300915401540.pdf",
+    "reason": "并购重组审核",
+    "notes": "停牌起始另由2021年报明确",
+    "start_source": "https://www.shairport.com/uploadfiles/2022/05/202205300919321932.pdf"
+  },
+  {
+    "code": "600030",
+    "start": "2022-01-19",
+    "end": "2022-01-26",
+    "resumed_on": "2022-01-27",
+    "source": "https://www.hkexnews.hk/listedco/listconews/sehk/2022/0124/2022012400734_c.pdf",
+    "reason": "A股配股",
+    "notes": "配股提示公告列缴款及清算停牌安排"
+  },
+  {
+    "code": "600039",
+    "start": "2021-09-30",
+    "end": "2021-10-20",
+    "resumed_on": "2021-10-21",
+    "source": "https://static.cninfo.com.cn/finalpage/2021-10-21/1211340106.PDF",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2021-10-21/1211340106.PDF",
+    "reason": "筹划发行股份购买资产",
+    "notes": "发行人复牌公告明确9月30日开市起停牌、10月21日开市起复牌；停牌公告编号2021-101。"
+  },
+  {
+    "code": "600039",
+    "start": "2022-10-27",
+    "end": "2022-10-27",
+    "resumed_on": "2022-10-28",
+    "source": "https://static.cninfo.com.cn/finalpage/2022-10-28/1214941057.PDF",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2022-10-27/1214923760.PDF",
+    "reason": "并购重组审核委员会审核",
+    "notes": "发行人停牌公告明确10月27日起停牌，复牌公告明确10月28日起复牌。"
+  },
+  {
+    "code": "600150",
+    "start": "2024-09-03",
+    "end": "2024-09-18",
+    "resumed_on": "2024-09-19",
+    "source": "https://static.cninfo.com.cn/finalpage/2024-09-19/1221234288.PDF",
+    "start_source": "https://money.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=10465469&stockid=600150",
+    "reason": "筹划换股吸收合并中国重工的重大资产重组",
+    "notes": "发行人9月3日停牌公告明确当日起停牌；9月19日复牌提示公告明确当日起复牌。"
+  },
+  {
+    "code": "600150",
+    "start": "2025-08-13",
+    "end": "2025-08-18",
+    "resumed_on": "2025-08-19",
+    "source": "https://money.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=11311275&stockid=600150",
+    "reason": "异议股东收购请求权申报",
+    "notes": "复牌表明确终止日；提示公告明确8月13日申报首日停牌",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2025-08-13/1224461789.PDF"
+  },
+  {
+    "code": "600372",
+    "start": "2022-05-27",
+    "end": "2022-06-10",
+    "resumed_on": "2022-06-13",
+    "source": "https://static.cninfo.com.cn/finalpage/2022-06-11/1213676161.PDF",
+    "start_source": "https://pdf.dfcfw.com/pdf/H2_AN202205261568048442_1.pdf",
+    "reason": "筹划换股吸收合并中航机电的重大资产重组",
+    "notes": "发行人停牌公告明确5月27日开市起停牌；6月11日披露的复牌公告及其公告信息明确6月13日开市起复牌。"
+  },
+  {
+    "code": "600372",
+    "start": "2022-12-21",
+    "end": "2022-12-21",
+    "resumed_on": "2022-12-22",
+    "source": "https://static.cninfo.com.cn/finalpage/2022-12-22/1215417009.PDF",
+    "reason": "并购重组审核",
+    "notes": "会议日停牌及次日复牌",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2022-12-16/1215367549.PDF"
+  },
+  {
+    "code": "600372",
+    "start": "2023-02-08",
+    "end": "2023-02-16",
+    "resumed_on": "2023-02-17",
+    "source": "https://static.cninfo.com.cn/finalpage/2023-02-17/1215880020.PDF",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2023-02-17/1215880020.PDF",
+    "reason": "异议股东收购请求权申报",
+    "notes": "发行人复牌提示公告说明2月8日停牌实施申报，并明确2月17日开市起复牌。"
+  },
+  {
+    "code": "600438",
+    "start": "2026-02-25",
+    "end": "2026-03-10",
+    "resumed_on": "2026-03-11",
+    "source": "https://epaper.stcn.com/pic/202603/11/9d31910708fbd3462a62c493bced61ff.pdf",
+    "reason": "筹划收购丽豪清能",
+    "notes": "公告停复牌表及正文明确"
+  },
+  {
+    "code": "600460",
+    "start": "2021-06-30",
+    "end": "2021-06-30",
+    "resumed_on": "2021-07-01",
+    "source": "https://static.cninfo.com.cn/finalpage/2021-07-01/1210377504.PDF",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2021-06-30/1210363973.PDF",
+    "reason": "并购重组审核委员会审核发行股份购买资产事项",
+    "notes": "发行人公告说明6月30日审核并明确7月1日开市起复牌；6月29日公告镜像明确6月30日开市起停牌。"
+  },
+  {
+    "code": "600515",
+    "start": "2021-02-18",
+    "end": "2021-02-18",
+    "resumed_on": "2021-02-19",
+    "source": "https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=6907015",
+    "reason": "法院受理重整并实施退市风险警示",
+    "notes": "公告明确停牌一天及复牌"
+  },
+  {
+    "code": "600515",
+    "start": "2021-09-28",
+    "end": "2021-09-28",
+    "resumed_on": "2021-09-29",
+    "source": "https://static.cninfo.com.cn/finalpage/2021-09-28/1211165266.PDF",
+    "reason": "重整债权人及出资人会议",
+    "notes": "公告明确停牌一天及复牌"
+  },
+  {
+    "code": "600515",
+    "start": "2021-12-21",
+    "end": "2021-12-21",
+    "resumed_on": "2021-12-22",
+    "source": "https://epaper.cs.com.cn/zgzqb/html/2021-12/21/nw.D110000zgzqb_20211221_2-B072.htm",
+    "reason": "重整资本公积转增股权登记日",
+    "notes": "公告明确停牌一天及复牌"
+  },
+  {
+    "code": "600515",
+    "start": "2022-05-18",
+    "end": "2022-05-18",
+    "resumed_on": "2022-05-19",
+    "source": "https://qxb-pdf-osscache.qixin.com/AnBaseinfo/3bc6af4fea81d3106754cc204ed8111e.pdf",
+    "reason": "撤销退市风险警示并继续其他风险警示",
+    "notes": "发行人公告原文明确一天停牌及复牌；官方PDF链接见notes"
+  },
+  {
+    "code": "600515",
+    "start": "2022-10-13",
+    "end": "2022-10-13",
+    "resumed_on": "2022-10-14",
+    "source": "https://epaper.stcn.com/att/202210/13/06f57bcb-ed6c-4219-ad77-b4e431900cb3.pdf",
+    "reason": "撤销其他风险警示",
+    "notes": "发行人公告临2022-067明确"
+  },
+  {
+    "code": "600584",
+    "start": "2024-03-20",
+    "end": "2024-03-26",
+    "resumed_on": "2024-03-27",
+    "source": "https://static.cninfo.com.cn/finalpage/2024-03-27/1219411656.PDF",
+    "reason": "筹划控制权变更",
+    "notes": "公告明确3月20-21日、3月22/25/26日停牌及3月27日复牌"
+  },
+  {
+    "code": "600745",
+    "start": "2025-10-09",
+    "end": "2025-10-10",
+    "resumed_on": "2025-10-13",
+    "source": "https://dataclouds.cninfo.com.cn/shgonggao/2025/2025-10-13/b01d4e7ea73d11f08d73fa163e957f7a.pdf",
+    "reason": "子公司安世经营管理重大事项",
+    "notes": "公告正文明确10月9日起停牌；表明确10月10日终止"
+  },
+  {
+    "code": "600745",
+    "start": "2026-04-30",
+    "end": "2026-04-30",
+    "resumed_on": "2026-05-06",
+    "source": "https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=12289133",
+    "reason": "实施退市风险警示及其他风险警示",
+    "notes": "停复牌表明确所有日期"
+  },
+  {
+    "code": "600803",
+    "start": "2021-10-21",
+    "end": "2021-10-26",
+    "resumed_on": "2021-10-27",
+    "source": "https://static.cninfo.com.cn/finalpage/2021-12-25/1212015691.PDF",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2021-12-25/1212015691.PDF",
+    "reason": "筹划重大资产重组",
+    "notes": "发行人进展公告明确股票于2021-10-21开市起停牌、2021-10-27开市起复牌。"
+  },
+  {
+    "code": "600803",
+    "start": "2022-07-13",
+    "end": "2022-07-13",
+    "resumed_on": "2022-07-14",
+    "source": "https://static.cninfo.com.cn/finalpage/2022-07-14/1214027901.PDF",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2022-07-13/1214013106.PDF",
+    "reason": "并购重组审核",
+    "notes": "发行人停牌公告与审核通过暨复牌公告明确停牌日和次日复牌。"
+  },
+  {
+    "code": "600803",
+    "start": "2025-03-19",
+    "end": "2025-03-26",
+    "resumed_on": "2025-03-27",
+    "source": "https://static.cninfo.com.cn/finalpage/2025-03-27/1222911070.PDF",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2025-03-19/1222834293.PDF",
+    "reason": "筹划重大事项/重大资产重组",
+    "notes": "发行人3月19日停牌公告与3月27日复牌公告明确边界。"
+  },
+  {
+    "code": "600837",
+    "start": "2024-09-06",
+    "end": "2024-10-09",
+    "resumed_on": "2024-10-10",
+    "source": "https://www.hkexnews.hk/listedco/listconews/sehk/2024/1009/2024100901033_c.pdf",
+    "reason": "国泰君安换股吸收合并海通证券",
+    "notes": "公告明确起始日及终止复牌表"
+  },
+  {
+    "code": "600845",
+    "start": "2021-05-12",
+    "end": "2021-05-12",
+    "resumed_on": "2021-05-13",
+    "source": "https://static.sse.com.cn/disclosure/listedinfo/announcement/c/new/2021-05-13/600845_20210513_1.pdf",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2021-05-10/1209944592.PDF",
+    "reason": "并购重组审核",
+    "notes": "发行人公告明确2021-05-12并购重组委会议日停牌；5月13日发行人审核有条件通过暨股票复牌公告明确开市起复牌。"
+  },
+  {
+    "code": "600900",
+    "start": "2021-11-29",
+    "end": "2021-12-10",
+    "resumed_on": "2021-12-13",
+    "source": "https://static.cninfo.com.cn/finalpage/2021-12-11/1211878864.PDF",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2021-11-29/1211715884.PDF",
+    "reason": "筹划重大资产重组",
+    "notes": "停牌公告明确11月29日起停牌；发行人12月11日复牌公告明确12月13日开市复牌。"
+  },
+  {
+    "code": "600900",
+    "start": "2022-10-26",
+    "end": "2022-10-26",
+    "resumed_on": "2022-10-27",
+    "source": "https://static.cninfo.com.cn/finalpage/2022-10-27/1214925017.PDF",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2022-10-26/1214900348.PDF",
+    "reason": "并购重组审核",
+    "notes": "发行人停牌公告与审核通过暨复牌公告明确10月26日停牌、10月27日复牌。"
+  },
+  {
+    "code": "600958",
+    "start": "2022-04-21",
+    "end": "2022-04-28",
+    "resumed_on": "2022-04-29",
+    "source": "https://finance.sina.com.cn/roll/2022-04-22/doc-imcwiwst3287352.shtml",
+    "reason": "A股配股缴款及清算",
+    "notes": "公告明确4月21日至4月28日停牌，4月29日复牌。发行结果公告确认实际复牌：https://finance.sina.com.cn/roll/2022-04-29/doc-imcwiwst4630687.shtml"
+  },
+  {
+    "code": "600958",
+    "start": "2026-04-20",
+    "end": "2026-05-06",
+    "resumed_on": "2026-05-07",
+    "source": "https://www.hkexnews.hk/listedco/listconews/sehk/2026/0506/2026050602620_c.pdf",
+    "reason": "发行股份及支付现金购买上海证券100%股权",
+    "notes": "2026-025公告正文明确4月20日开市停牌，表格明确终止日5月6日、复牌日5月7日。"
+  },
+  {
+    "code": "601059",
+    "start": "2025-11-20",
+    "end": "2025-12-17",
+    "resumed_on": "2025-12-18",
+    "source": "https://money.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=11855843&stockid=601059",
+    "reason": "中金公司换股吸收合并东兴证券和信达证券",
+    "notes": "2025-057公告明确11月20日开市停牌，表格明确12月17日终止、12月18日复牌。"
+  },
+  {
+    "code": "601088",
+    "start": "2025-08-04",
+    "end": "2025-08-15",
+    "resumed_on": "2025-08-18",
+    "source": "https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=11307577",
+    "reason": "发行股份及支付现金购买控股股东资产并募集配套资金",
+    "notes": "临2025-045公告表格明确8月15日停牌终止、8月18日复牌；新浪正文起始日期字符残缺，另以临2025-039原文确认8月4日停牌。",
+    "start_source": "https://static.cninfo.com.cn/finalpage/2025-08-02/1224369333.PDF"
+  },
+  {
+    "code": "601211",
+    "start": "2024-09-06",
+    "end": "2024-10-09",
+    "resumed_on": "2024-10-10",
+    "source": "https://q.stock.sohu.com/cn/gg/2024/601211/59980528.shtml",
+    "reason": "换股吸收合并海通证券并募集配套资金",
+    "notes": "2024-065 issuer公告原文镜像，正文明确9月6日开市停牌，表格明确10月9日停牌终止、10月10日复牌。"
+  },
+  {
+    "code": "601211",
+    "start": "2025-02-06",
+    "end": "2025-02-07",
+    "resumed_on": "2025-02-10",
+    "source": "https://www.hkexnews.hk/listedco/listconews/sehk/2025/0207/2025020700793_c.pdf",
+    "reason": "A股异议股东收购请求权申报",
+    "notes": "2025-015公告明确2月6日开市停牌，2月7日停牌终止、2月10日复牌。"
+  },
+  {
+    "code": "601236",
+    "start": "2021-07-27",
+    "end": "2021-08-03",
+    "resumed_on": "2021-08-04",
+    "source": "https://finance.sina.com.cn/roll/2021-10-29/doc-iktzqtyu4139869.shtml",
+    "reason": "配股缴款及网上清算",
+    "notes": "发行人2021第三季度报告明确7月27日至8月3日停止交易，8月4日股票复牌；区别于8月25日新增配股股份上市。"
+  },
+  {
+    "code": "601377",
+    "start": "2022-08-17",
+    "end": "2022-08-24",
+    "resumed_on": "2022-08-25",
+    "source": "https://static.cninfo.com.cn/finalpage/2022-08-25/1214390207.PDF",
+    "reason": "配股缴款及网上清算",
+    "notes": "临2022-031发行结果公告明确8月25日起复牌；配股说明书明确8月17日至8月23日全天停牌，8月24日清算停牌。",
+    "start_source": "https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=8415144&stockid="
+  },
+  {
+    "code": "601615",
+    "start": "2026-01-13",
+    "end": "2026-01-22",
+    "resumed_on": "2026-01-23",
+    "source": "https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=11930428&stockid=",
+    "reason": "发行股份及支付现金购买德华芯片100%股权并募集配套资金",
+    "notes": "2026-010公告正文及表格明确停牌起始1月13日、终止1月22日、复牌1月23日。"
+  },
+  {
+    "code": "601916",
+    "start": "2023-06-15",
+    "end": "2023-06-26",
+    "resumed_on": "2023-06-27",
+    "source": "https://www.czbank.com/cn/investor/announcements_3867/202306/P020230614596631766639.pdf",
+    "reason": "A股配股缴款及清算",
+    "notes": "发行人A股配股提示性公告明确6月15日至6月26日股票停牌、6月27日复牌交易。"
+  },
+  {
+    "code": "601989",
+    "start": "2024-09-03",
+    "end": "2024-09-18",
+    "resumed_on": "2024-09-19",
+    "source": "https://paper.cnstock.com/html/2024-09/19/content_1969652.htm",
+    "reason": "中国船舶换股吸收合并中国重工",
+    "notes": "临2024-052公告明确9月3日开市起停牌，9月19日开市复牌；9月18日为复牌前最后交易日。此为2024历史重组筹划停牌，非2025终止上市事件。"
+  },
+  {
+    "code": "603019",
+    "start": "2025-05-26",
+    "end": "2025-06-09",
+    "resumed_on": "2025-06-10",
+    "source": "https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=11171764",
+    "reason": "海光信息换股吸收合并中科曙光并募集配套资金",
+    "notes": "2025-041公告明确5月26日开市停牌，表格明确6月9日终止、6月10日复牌。"
+  },
+  {
+    "code": "688012",
+    "start": "2025-12-19",
+    "end": "2025-12-31",
+    "resumed_on": "2026-01-05",
+    "source": "https://stockmc.xueqiu.com/202512/688012_20260101_8YSP.pdf",
+    "reason": "发行股份及支付现金购买杭州众硅控股权并募集配套资金",
+    "notes": "2026-001发行人公告PDF镜像，正文明确12月19日开市停牌，表格明确12月31日终止、1月5日复牌。"
+  },
+  {
+    "code": "688041",
+    "start": "2025-05-26",
+    "end": "2025-06-09",
+    "resumed_on": "2025-06-10",
+    "source": "https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?CompanyCode=80505315&gather=1&id=11171740",
+    "reason": "换股吸收合并中科曙光并募集配套资金",
+    "notes": "2025-021公告明确5月26日开市停牌，表格明确6月9日终止、6月10日复牌；原始抓取错误不能否定已证实停牌。"
+  },
+  {
+    "code": "688065",
+    "start": "2023-06-16",
+    "end": "2023-06-21",
+    "resumed_on": "2023-06-26",
+    "source": "https://file.finance.sina.com.cn/211.154.219.97%3A9494/MRGG/CNSESH_STOCK/2023/2023-6/2023-06-26/9307971.PDF",
+    "reason": "控股股东筹划重大事项，向特定对象发行股票及招商局合作",
+    "notes": "2023-020原文PDF已下载到内存并用pypdf读取：实际停牌始于2023年6月15日下午，6月26日上午复牌。此记录覆盖缺失的全天交易区间6月16日至6月21日；6月22-25日为端午休市/周末，公告没有把停牌起始写成6月16日。"
+  },
+  {
+    "code": "688126",
+    "start": "2025-02-24",
+    "end": "2025-03-07",
+    "resumed_on": "2025-03-10",
+    "source": "https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=10774147",
+    "reason": "发行股份及支付现金购买新昇晶投/晶科/晶睿少数股权并募集配套资金",
+    "notes": "2025-013公告明确2月24日开市起停牌，表格明确3月7日终止、3月10日复牌。"
+  },
+  {
+    "code": "688981",
+    "start": "2025-09-01",
+    "end": "2025-09-08",
+    "resumed_on": "2025-09-09",
+    "source": "https://www1.hkexnews.hk/listedco/listconews/sehk/2025/0908/2025090801072_c.pdf",
+    "reason": "发行股份购买中芯北方49%股权",
+    "notes": "2025-024公告明确9月1日开市停牌，表格明确9月8日终止、9月9日复牌。"
+  }
+]

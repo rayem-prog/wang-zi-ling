@@ -159,9 +159,14 @@ export function useSignalsPage(emit) {
     if (error) messages.push(typeof error === 'string' ? error : error.message)
     if (value.audit?.error?.message) messages.push(value.audit.error.message)
     if (['queued', 'running'].includes(value.job?.status)) {
-      const stages = { queued: '排队', fetch: '采集行情', audit: '核验行情', features: '计算因子', train: '模型计算', score: '候选评分', risk: '风险检查', validate: '校验结果', persist: '保存结果', publish: '发布结果', complete: '完成' }
+      const stages = { queued: '排队', fetch: '采集行情', fetch_daily: '日线补采', fetch_raw_daily: '不复权日线补采', fetch_spot: '报价采集', fetch_minute: '分钟线补采', audit: '核验行情', features: '计算因子', train: '模型计算', score: '候选评分', risk: '风险检查', validate: '校验结果', persist: '保存结果', publish: '发布结果', complete: '完成' }
       messages.push(`更新中：${stages[value.job.stage] || '后台计算'}`)
-    } else if (['pending', 'running'].includes(value.audit_state)) messages.push('正在核验行情，已有结果保留')
+    } else if (['pending', 'running'].includes(value.audit_state)) {
+      const elapsed = value.audit?.elapsed_seconds
+      messages.push(`${value.audit?.error ? '后台重新核验' : '正在核验行情'}${elapsed == null ? '' : `，已用时 ${elapsed} 秒`}，已有结果保留`)
+    }
+    if (value.audit?.missing_codes?.length) messages.push(`${value.audit.expected_trade_date || '最新交易日'} 缺少日线：${value.audit.missing_codes.join('、')}`)
+    if (value.audit?.insufficient_recent_history?.length) messages.push(`最近连续历史不足 61 条：${value.audit.insufficient_recent_history.join('、')}`)
     if (value.job?.status === 'interrupted') messages.push('上次更新已中断，请重新生成')
     for (const reason of value.blocked_reasons || []) if (reason.message) messages.push(reason.message)
     if (value.empty_kind === 'screened_out') messages.push('本次计算完成，没有满足筛选条件的候选')

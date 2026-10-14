@@ -12,6 +12,7 @@ const gets = {
   getSandboxStatus: '/sandbox/status', getAiSimulation: '/paper/ai-simulation?risk_pref=balanced',
 }
 const posts = {
+  retryMarketCollection: '/status/refresh',
   stopDaemon: '/settings/daemon/stop', startDaemon: '/settings/daemon/start',
   makeRandomPortfolio: '/paper/random-portfolio', shockPortfolio: '/paper/shock-test',
   resetPaperAccount: '/paper/reset', fastForwardSandbox: '/sandbox/fast-forward',

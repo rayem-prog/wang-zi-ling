@@ -75,6 +75,18 @@ def assess_data_health(
                 result["minute_updated_at"] = minute_meta[2] or ""
                 result["minute_status"] = ("current" if latest and minute_meta[0] >= latest else "stale")
             if expected_codes is None:
+                from data.db import universe_key
+                if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collection_universe'").fetchone():
+                    row = conn.execute('SELECT codes FROM collection_universe WHERE config=?',
+                                       (universe_key(settings.universe),)).fetchone()
+                    if row:
+                        expected_codes = json.loads(row[0])
+                    elif conn.execute('SELECT 1 FROM collection_universe LIMIT 1').fetchone():
+                        result.update(error_code='universe_uncollected',
+                                      reason='证券池配置已变化，需要先采集当前证券池后再核验')
+                        result['conditions'] = health_conditions(result)
+                        return result
+            if expected_codes is None:
                 spot_codes = [r[0] for r in conn.execute("SELECT code FROM spot")]
                 expected_codes = spot_codes or [r[0] for r in conn.execute(
                     f"SELECT DISTINCT code FROM bars WHERE code<>? AND {real_bars}", (settings.data.index_symbol,)
@@ -189,6 +201,7 @@ def assess_data_health(
                 result["internal_gaps"] = classify_internal_gaps(conn)
                 from data.baseline import load_training_bars
                 trusted_codes = []
+                latest_codes = []
                 trusted_history_codes = []
                 result['classifications']['insufficient_recent_history'] = []
                 for code in result["eligible_codes"]:
@@ -200,17 +213,27 @@ def assess_data_health(
                         result['classifications']['insufficient_recent_history'].append(code)
                     if recent_rows >= 61 and str(frame["date"].max()) >= expected_day:
                         trusted_codes.append(code)
+                    if not frame.empty and str(frame['date'].max()) >= expected_day:
+                        latest_codes.append(code)
                     if len(frame) >= 61 and str(frame["date"].min()) <= history_cutoff_for(code):
                         trusted_history_codes.append(code)
                 result["trusted_codes"] = trusted_codes
                 result["trusted_history_codes"] = trusted_history_codes
                 count = result["expected_codes"]
+                result['trusted_latest_codes'] = latest_codes
+                result['trusted_latest_coverage'] = len(latest_codes) / count if count else 0.0
                 result["trusted_coverage"] = len(trusted_codes) / count if count else 0.0
                 result["trusted_history_coverage"] = len(trusted_history_codes) / count if count else 0.0
                 if result["trusted_coverage"] < min_coverage or result["trusted_history_coverage"] < min_coverage:
                     trusted_reasons.append("股票可信历史或最新连续61条日线覆盖不足98%，不能生成推荐")
                 result['history_gap_policy'] = 'segments; no filled bars, no factors across gaps'
                 trusted_bench = load_training_bars(str(db_path), settings.data.index_symbol, adjustment="none")
+                current_bench=load_training_bars(str(db_path),settings.data.index_symbol,adjustment='none',gap_policy='segments')
+                result['benchmark_trusted_latest_date']=str(current_bench.date.max()) if not current_bench.empty else None
+                result['benchmark_history_cutoff']=(base_history_start+dt.timedelta(days=30)).isoformat()
+                result['benchmark_training_ready']=(len(trusted_bench)>=61 and
+                    str(trusted_bench.date.min())<=result['benchmark_history_cutoff'] and
+                    str(trusted_bench.date.max())>=expected_day)
                 result["trusted_trade_date"] = str(trusted_bench["date"].max()) if not trusted_bench.empty else None
                 if len(trusted_bench) < 61 or not result["trusted_trade_date"] or result["trusted_trade_date"] < expected_day:
                     trusted_reasons.append("基准指数尚无覆盖最新完整交易日的可信完整快照")
@@ -230,8 +253,14 @@ def assess_data_health(
                     result["minute_status"] = "stale" if result["minute_rows"] else "empty"
                     result["minute_stale"] = True
                 from data.baseline import load_training_minute_bars
-                result["minute_trusted_fresh_codes"] = [code for code in result["eligible_codes"]
-                    if not load_training_minute_bars(str(db_path), code, live=True, now=now).empty]
+                from data.incremental import minute_missing_times
+                from data.timeliness import collection_minute_target
+                _,through=collection_minute_target(now)
+                result['minute_trusted_fresh_codes']=[]
+                for code in result['eligible_codes']:
+                    minute_frame=load_training_minute_bars(str(db_path),code,live=True,now=now)
+                    if not minute_frame.empty and through and not minute_missing_times(minute_frame,through):
+                        result['minute_trusted_fresh_codes'].append(code)
                 result["minute_trusted_fresh_coverage"] = len(result["minute_trusted_fresh_codes"]) / count if count else 0.0
                 if settings.engine.use_intraday_factors and result["minute_trusted_fresh_coverage"] < min_coverage:
                     trusted_reasons.append("分钟因子开启，但可信分钟缓存过期、复权版本混合或缺少验证证据")
@@ -265,7 +294,53 @@ def assess_data_health(
     result["reason"] = "；".join(reasons)
     result["ready"] = not reasons
     result["training_ready"] = result["ready"]
+    result['conditions'] = health_conditions(result)
+    result['training_ready'] = result['conditions']['training']['ready']
     return result
+
+
+def health_conditions(health, *, audit_state=None, fresh=None):
+    """Daily freshness, minute freshness and model history are independent gates."""
+    expected=health.get('expected_trade_date')
+    known=bool(expected and health.get('expected_codes'))
+    benchmark_latest=health.get('benchmark_trusted_latest_date',health.get('trusted_trade_date'))
+    benchmark_current=bool(benchmark_latest and expected and benchmark_latest>=expected)
+    daily=known and benchmark_current and health.get('trusted_latest_coverage',0)>=.98
+    minute=known and not health.get('minute_stale',True) and health.get('minute_trusted_fresh_coverage',0)>=.98
+    benchmark_history=health.get('benchmark_training_ready')
+    if benchmark_history is None:
+        benchmark_history=(health.get('benchmark_history_rows',0)>=61 and
+            bool(health.get('trusted_trade_date')) and
+            bool(health.get('benchmark_history_start')) and bool(health.get('benchmark_history_cutoff')) and
+            health['benchmark_history_start']<=health['benchmark_history_cutoff'])
+    training=(known and benchmark_current and benchmark_history
+              and health.get('trusted_coverage',0)>=.98 and health.get('trusted_history_coverage',0)>=.98
+              and health.get('history_coverage',0)>=.98)
+    classified=health.get('classifications') or {}
+    values=dict(
+        daily=dict(ready=bool(daily),trade_date=health.get('trade_date'),expected_trade_date=expected,
+                   coverage=health.get('trusted_latest_coverage',0),
+                   missing_codes=(sorted(set(health.get('eligible_codes',[]))-set(health['trusted_latest_codes']))
+                                  if 'trusted_latest_codes' in health else health.get('missing_codes',[])),
+                   reason='' if daily else '最新可信日线或基准覆盖不足98%'),
+        minute=dict(ready=bool(minute),expected_at=health.get('minute_expected_at'),
+                    coverage=health.get('minute_trusted_fresh_coverage',0),
+                    missing_codes=sorted(set(health.get('eligible_codes',[]))-set(health.get('minute_trusted_fresh_codes',[]))),
+                    reason='' if minute else health.get('minute_reason') or '可信分钟覆盖不足98%'),
+        training=dict(ready=bool(training),minimum_contiguous_rows=61,
+                      recent_coverage=health.get('trusted_coverage',0),history_coverage=health.get('trusted_history_coverage',0),
+                      insufficient_recent_history=classified.get('insufficient_recent_history',[]),
+                      internal_gaps=health.get('internal_gaps',[]),
+                      reason='' if training else '可信历史、基准或最近连续61条日线条件不足'))
+    for value in values.values():
+        value['state']='ready' if value['ready'] else 'blocked'
+        if health.get('error_code') in ('audit_version_changed','collection_failed','universe_uncollected'):
+            value.update(ready=False,state='blocked',reason=health.get('reason'))
+        if audit_state in ('pending','running','unknown'):
+            value.update(ready=False,state='checking' if audit_state!='unknown' else 'unknown')
+        elif fresh is False or (fresh is None and health.get('health_cache_stale')):
+            value.update(ready=False,state='unknown',reason='核验已过期，需要重新检查')
+    return values
 
 
 def recommendation_state(settings: Settings, health: dict) -> dict:

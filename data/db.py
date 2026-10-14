@@ -13,7 +13,7 @@ MINUTE_BAR_COLUMNS = ["code", "date", "time", "open", "high", "low", "close", "v
 
 
 def _connect(db_path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -22,6 +22,8 @@ def init_db(db_path: str) -> None:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = _connect(db_path)
     try:
+        # Historical audits must not block a snapshot commit with a shared read lock.
+        conn.execute('PRAGMA journal_mode=WAL')
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS bars (
@@ -35,6 +37,10 @@ def init_db(db_path: str) -> None:
                 code TEXT PRIMARY KEY,
                 name TEXT, price REAL, pct_change REAL,
                 volume REAL, amount REAL, ts TEXT
+            );
+            CREATE TABLE IF NOT EXISTS collection_universe (
+                config TEXT PRIMARY KEY,
+                codes TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS freshness (
                 code TEXT PRIMARY KEY,
@@ -94,14 +100,26 @@ def init_db(db_path: str) -> None:
         migrate(conn)
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS market_input_version (
-                id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL);
-            INSERT OR IGNORE INTO market_input_version VALUES(1,0);
+                id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL,
+                daily_version INTEGER NOT NULL DEFAULT 0, minute_version INTEGER NOT NULL DEFAULT 0);
+            INSERT OR IGNORE INTO market_input_version(id,version) VALUES(1,0);
         """)
+        conn.execute('BEGIN IMMEDIATE')
+        version_columns={row[1] for row in conn.execute('PRAGMA table_info(market_input_version)')}
+        for column in ('daily_version','minute_version'):
+            if column not in version_columns:
+                conn.execute(f'ALTER TABLE market_input_version ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0')
+                conn.execute(f'UPDATE market_input_version SET {column}=version WHERE id=1')
         for table in ("bars", "minute_bars"):
+            component='daily_version' if table=='bars' else 'minute_version'
             for operation in ("INSERT", "UPDATE", "DELETE"):
+                name=f'market_version_{table}_{operation.lower()}'
+                old=conn.execute("SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?",(name,)).fetchone()
+                if old and component not in old[0]:
+                    conn.execute(f'DROP TRIGGER {name}')
                 conn.execute(f"""CREATE TRIGGER IF NOT EXISTS market_version_{table}_{operation.lower()}
                     AFTER {operation} ON {table} BEGIN
-                        UPDATE market_input_version SET version=version+1 WHERE id=1;
+                        UPDATE market_input_version SET version=version+1,{component}={component}+1 WHERE id=1;
                     END""")
         conn.commit()
     finally:
@@ -181,6 +199,26 @@ def get_freshness(db_path: str, code: str) -> str | None:
     try:
         row = conn.execute("SELECT last_updated FROM freshness WHERE code=?", (code,)).fetchone()
         return row["last_updated"] if row else None
+    finally:
+        conn.close()
+
+
+def universe_key(universe) -> str:
+    from dataclasses import asdict
+    import json
+    return json.dumps(asdict(universe), sort_keys=True)
+
+
+def save_collection_universe(db_path: str, universe, codes: list[str]) -> None:
+    import json
+    if not codes:
+        raise ValueError('证券池为空，保留上次采集范围')
+    init_db(db_path)
+    conn = _connect(db_path)
+    try:
+        conn.execute('INSERT OR REPLACE INTO collection_universe(config,codes) VALUES (?,?)',
+                     (universe_key(universe), json.dumps(sorted(set(codes)))))
+        conn.commit()
     finally:
         conn.close()
 

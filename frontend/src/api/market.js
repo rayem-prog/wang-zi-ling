@@ -2,6 +2,7 @@ import { client } from './client.js'
 
 export const marketApi = {
   getStatus: () => client.get('/status').then(res => res.data),
+  retryMarketCollection: () => client.post('/status/refresh').then(res => res.data),
   getOrders: () => client.get('/orders').then(res => res.data),
   getOrdersExportUrl: () => '/api/orders/export',
   getMacro: () => client.get('/macro').then(res => res.data),

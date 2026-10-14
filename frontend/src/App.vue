@@ -6,6 +6,16 @@
       :ws-connected="wsConnected"
       @refresh="refreshAll"
     />
+    <div v-if="systemStatus?.data_conditions" class="data-warning" role="status">
+      日线：{{ conditionLabel(systemStatus.data_conditions.daily) }}；
+      分钟线：{{ conditionLabel(systemStatus.data_conditions.minute) }}；
+      历史训练：{{ conditionLabel(systemStatus.data_conditions.training) }}。
+      <span v-if="systemStatus.data_update">采集任务：{{ taskLabel(systemStatus.data_update.status) }} · {{ collectionStage(systemStatus.data_update.stage) }}。</span>
+      <button @click="retryCollection" :disabled="collectionSubmitting || ['queued', 'running'].includes(systemStatus.data_update?.status)">
+        {{ collectionSubmitting ? '正在提交…' : '补采缺口 / 重试采集' }}
+      </button>
+      <p v-if="collectionError || systemStatus.data_update?.error">{{ collectionError || systemStatus.data_update.error }}</p>
+    </div>
     <div v-if="systemStatus?.data_health && !systemStatus.data_health.ready" class="data-warning" role="status">
       行情未通过检查：{{ systemStatus.data_health.reason }}。交易日 {{ systemStatus.data_health.trade_date || '未知' }}，
       覆盖 {{ systemStatus.data_health.covered_codes ?? '待核验' }}/{{ systemStatus.data_health.expected_codes ?? '待核验' }}；新推荐和指令已暂停。
@@ -80,6 +90,38 @@ const activeTab = ref('intraday')
 const systemStatus = ref({})
 const wsConnected = ref(false)
 const currentViewRef = ref(null)
+const collectionSubmitting = ref(false)
+const collectionError = ref('')
+let collectionFlight = null
+function conditionLabel(value) {
+  return ({ready:'通过',blocked:'未通过',checking:'核验中',unknown:'待核验'})[value?.state] || '待核验'
+}
+function taskLabel(value) {
+  return ({queued:'排队',running:'执行中',succeeded:'采集完成',failed:'采集失败',interrupted:'已中断'})[value] || '尚未采集'
+}
+function collectionStage(value) {
+  return ({fetch:'采集行情',fetch_daily:'日线补采',fetch_raw_daily:'不复权日线补采',fetch_spot:'报价采集',
+    fetch_minute:'分钟线补采',audit:'核验条件',complete:'完成',queued:'排队'})[value] || value || '待执行'
+}
+function retryCollection() {
+  if (collectionFlight) return collectionFlight
+  if (['queued','running'].includes(systemStatus.value.data_update?.status)) return Promise.resolve()
+  collectionSubmitting.value = true
+  collectionError.value = ''
+  collectionFlight = (async () => {
+    try {
+      const job = await api.retryMarketCollection()
+      systemStatus.value = { ...systemStatus.value, data_update: job }
+      await fetchStatus()
+    } catch (err) {
+      collectionError.value = err.response?.data?.detail || err.message || '采集任务提交失败，请重试'
+    } finally {
+      collectionSubmitting.value = false
+      collectionFlight = null
+    }
+  })()
+  return collectionFlight
+}
 let wsClient = null
 
 const navItems = computed(() => [

@@ -108,6 +108,24 @@ test('app refresh invokes the active view refresh contract', async () => {
   assert.equal(app.state.systemStatus.value.marker, 'fresh')
 })
 
+test('app shows independent data conditions and deduplicates collection retry', async () => {
+  const request=deferred();let calls=0
+  const app=setup('App',{retryMarketCollection:()=>{calls++;return request.promise},
+    getStatus:async()=>({data_update:{job_id:'same-job',status:'running',stage:'fetch_daily'}})})
+  app.state.systemStatus.value={data_conditions:{daily:{state:'ready'},minute:{state:'blocked'},training:{state:'blocked'}},
+    data_update:{status:'failed',stage:'fetch_minute',error:'分钟超时'}}
+  const html=await app.html()
+  assert.match(html,/日线：通过/)
+  assert.match(html,/分钟线：未通过/)
+  assert.match(html,/历史训练：未通过/)
+  assert.match(html,/分钟超时/)
+  const a=app.state.retryCollection(),b=app.state.retryCollection()
+  assert.equal(calls,1)
+  request.resolve({job_id:'same-job',status:'running',stage:'fetch_daily'})
+  await Promise.all([a,b])
+  assert.equal(app.state.systemStatus.value.data_update.job_id,'same-job')
+})
+
 test('intraday requests share one flight and stop scheduling on deactivation', async () => {
   const d = deferred(), r = deferred()
   let decisionsCalls = 0, radarCalls = 0

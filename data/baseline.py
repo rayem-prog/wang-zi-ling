@@ -5,7 +5,12 @@ import datetime as dt
 import hashlib
 import json
 import math
+import logging
+from logging.handlers import RotatingFileHandler
+import os
 import sqlite3
+import threading
+import time as timer
 from pathlib import Path
 
 import pandas as pd
@@ -18,6 +23,20 @@ META = {'verification_status': "TEXT NOT NULL DEFAULT 'quarantined'", 'quarantin
         'adjustment': "TEXT NOT NULL DEFAULT 'unknown'", 'adjustment_version': "TEXT NOT NULL DEFAULT 'unknown'", 'evidence': "TEXT NOT NULL DEFAULT ''"}
 PRICE = ['open','high','low','close','volume','amount']
 UNKNOWN = {'','unknown','legacy_unknown','simulation','demo','synthetic','tencent_price_line'}
+_log_setup_lock = threading.Lock()
+
+
+def transaction_logger(db_path):
+    path = str(Path(db_path).resolve())
+    logger = logging.getLogger('stockpilot.transactions.' + str(os.getpid()) + '.' + hashlib.sha256(path.encode()).hexdigest())
+    with _log_setup_lock:
+        if not logger.handlers:
+            handler = RotatingFileHandler(path + f'.transactions.{os.getpid()}.log',
+                                          maxBytes=2_000_000, backupCount=2, encoding='utf-8', delay=True)
+            handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO)
+    return logger
 
 
 def stamp() -> str:
@@ -230,8 +249,15 @@ def publish_bar_snapshot(db_path: str, code: str, bars: pd.DataFrame, *, source:
     content_hash=snapshot_hash(rows)
     from data.db import _connect
     conn=_connect(db_path)
+    started=timer.monotonic()
+    logger=transaction_logger(db_path)
+    context=dict(pid=os.getpid(),thread=threading.current_thread().name,code=code,
+                 database=str(Path(db_path).resolve()),rows=len(rows))
+    phase='begin'
     try:
+        logger.info('snapshot transaction begin %s', context)
         conn.execute('BEGIN IMMEDIATE')
+        phase='write'
         active=conn.execute('SELECT adjustment,version FROM active_bar_snapshots WHERE code=?',(code,)).fetchone()
         replacing = active is not None and (active['adjustment'],active['version']) != (adjustment,adjustment_version)
         if replacing and expected_version is None:
@@ -257,9 +283,13 @@ def publish_bar_snapshot(db_path: str, code: str, bars: pd.DataFrame, *, source:
             conn.execute(f"INSERT OR REPLACE INTO bars({','.join(names)}) VALUES({','.join('?' for _ in names)})",list(row.values()))
         conn.execute('INSERT INTO bar_snapshots VALUES(?,?,?,?,?,?)',(code,adjustment,adjustment_version,content_hash,evidence,fetched))
         conn.execute('INSERT OR REPLACE INTO active_bar_snapshots VALUES(?,?,?)',(code,adjustment,adjustment_version))
+        phase='commit'
         conn.commit()
+        logger.info('snapshot transaction committed %s elapsed=%.3fs',context,timer.monotonic()-started)
         return len(rows)
     except Exception:
+        logger.exception('snapshot transaction failed %s phase=%s elapsed=%.3fs',
+                         context,phase,timer.monotonic()-started)
         conn.rollback()
         raise
     finally:
